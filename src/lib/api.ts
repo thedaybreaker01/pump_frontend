@@ -33,6 +33,10 @@ export type TokenDto = {
   price_change_pct_at_promote?: number | null
   mcap_usd_at_promote?: number | null
   first_seen_at_promote?: string | null
+  /** A_mark buy USD (open cycle, else price at promote). */
+  a_mark_buy_price_usd?: number | null
+  /** Current price vs A_mark buy — same basis as S_mark. */
+  change_vs_a_mark_pct?: number | null
 }
 
 /** GET /tokens?sort=... (see token-monitor `TokenListSort::parse`). */
@@ -50,10 +54,146 @@ export type PricePointDto = {
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? ''
 
+export type HealthDto = {
+  ok: boolean
+  s_mark_enabled?: boolean
+  s_mark_mode?: string
+  manual_sell_enabled?: boolean
+  l_tokens_enabled?: boolean
+}
+
+export type SMarkModeDto = {
+  mode: 'auto' | 'manual' | string
+  s_mark_enabled: boolean
+  manual_sell_enabled: boolean
+}
+
+export async function fetchSMarkMode(): Promise<SMarkModeDto> {
+  const res = await fetch(`${API_BASE}/signals/s-mark-mode`)
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return (await res.json()) as SMarkModeDto
+}
+
+export async function putSMarkMode(mode: 'auto' | 'manual'): Promise<SMarkModeDto> {
+  const res = await fetch(`${API_BASE}/signals/s-mark-mode`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode }),
+  })
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`
+    try {
+      const t = await res.text()
+      if (t.trim()) msg = t.trim()
+    } catch {
+      /* ignore */
+    }
+    throw new Error(msg)
+  }
+  return (await res.json()) as SMarkModeDto
+}
+
+export async function fetchHealth(): Promise<HealthDto> {
+  const res = await fetch(`${API_BASE}/health`)
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return (await res.json()) as HealthDto
+}
+
+export type ManualMarkSellResultDto = {
+  ok: boolean
+  mint: string
+  cycle_id: number
+  sell_price_usd: number
+  buy_price_usd: number
+  pnl_pct: number
+  reason: string
+}
+
+/** Paper S_mark at fresh Jupiter price (manual mode). */
+export async function postManualMarkSell(mint: string): Promise<ManualMarkSellResultDto> {
+  const res = await fetch(`${API_BASE}/signals/manual-sell`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mint }),
+  })
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`
+    try {
+      const t = await res.text()
+      if (t.trim()) msg = t.trim()
+    } catch {
+      /* ignore */
+    }
+    throw new Error(msg)
+  }
+  return (await res.json()) as ManualMarkSellResultDto
+}
+
 export type TokenEventDto = {
   mint?: string
   op?: string
   at?: string
+}
+
+export type MarkCycleEventDto = {
+  op?: string
+  cycle_id?: number
+  mint?: string
+  status?: string
+}
+
+export type ATierPromoteEventDto = {
+  op?: string
+  mint?: string
+  token_name?: string | null
+  price_usd?: number | null
+  mcap_usd?: number | null
+  price_change_pct?: number | null
+  is_dex?: boolean | null
+  is_pump_live?: boolean | null
+  promoted_at?: string | null
+}
+
+export function subscribeATokenPromoteEvents(
+  onChange: (event: ATierPromoteEventDto) => void,
+  onError?: () => void,
+): () => void {
+  const url = new URL(`${API_BASE}/a-tokens/events`, window.location.origin)
+  const source = new EventSource(url.toString())
+
+  source.addEventListener('a-token-promote', (event) => {
+    try {
+      onChange(JSON.parse(event.data) as ATierPromoteEventDto)
+    } catch {
+      onChange({})
+    }
+  })
+  source.onerror = () => {
+    onError?.()
+  }
+
+  return () => source.close()
+}
+
+export function subscribeMarkCycleEvents(
+  onChange: (event: MarkCycleEventDto) => void,
+  onError?: () => void,
+): () => void {
+  const url = new URL(`${API_BASE}/signals/mark-events`, window.location.origin)
+  const source = new EventSource(url.toString())
+
+  source.addEventListener('mark-change', (event) => {
+    try {
+      onChange(JSON.parse(event.data) as MarkCycleEventDto)
+    } catch {
+      onChange({})
+    }
+  })
+  source.onerror = () => {
+    onError?.()
+  }
+
+  return () => source.close()
 }
 
 export function subscribeTokenEvents(onChange: (event: TokenEventDto) => void, onError?: () => void): () => void {
@@ -118,6 +258,13 @@ export async function fetchTokensBatch(mints: string[]): Promise<TokenDto[]> {
   const res = await fetch(url.toString())
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return (await res.json()) as TokenDto[]
+}
+
+/** GET /tokens/:mint — works for pump_tokens, a_tokens, or l_tokens home. */
+export async function fetchToken(mint: string): Promise<TokenDto> {
+  const res = await fetch(`${API_BASE}/tokens/${encodeURIComponent(mint.trim())}`)
+  if (!res.ok) throw new Error(res.status === 404 ? 'Token not found' : `HTTP ${res.status}`)
+  return (await res.json()) as TokenDto
 }
 
 export async function fetchTokenPrices(
@@ -509,6 +656,27 @@ export async function fetchMarkCycleDetail(id: number): Promise<MarkCycleDetailD
   const res = await fetch(url.toString())
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return (await res.json()) as MarkCycleDetailDto
+}
+
+export type MarkPaperFeedDto = {
+  id: number
+  event_at: string
+  event_type: string
+  mint: string
+  cycle_id: number | null
+  token_name: string | null
+  detail: Record<string, unknown>
+  buy_sol: number | null
+  sell_sol: number | null
+  pnl_sol: number | null
+}
+
+export async function fetchMarkPaperFeed(limit = 40): Promise<MarkPaperFeedDto[]> {
+  const url = new URL(`${API_BASE}/signals/mark-feed`, window.location.origin)
+  url.searchParams.set('limit', String(limit))
+  const res = await fetch(url.toString())
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return (await res.json()) as MarkPaperFeedDto[]
 }
 
 export async function fetchMarkSummary(params?: {

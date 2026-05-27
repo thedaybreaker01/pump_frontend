@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import SMarkModeToggle from '../components/SMarkModeToggle';
 
 export type NavKey =
   | 'tokens'
@@ -12,6 +13,9 @@ export default function SidebarLayout(props: {
   active: NavKey;
   onNavigate: (to: NavKey) => void;
   children: ReactNode;
+  /** Unseen A-tier promotions (cleared when opening A_Tokens). */
+  aPromoteUnread?: number;
+  lTokensEnabled?: boolean;
 }) {
   return (
     <div className="shell">
@@ -59,15 +63,24 @@ export default function SidebarLayout(props: {
             onClick={() => props.onNavigate('a_tokens')}
           >
             A_Tokens
+            {(props.aPromoteUnread ?? 0) > 0 ? (
+              <span className="navBadge" aria-label={`${props.aPromoteUnread} new A-token(s)`}>
+                {(props.aPromoteUnread ?? 0) > 99 ? '99+' : props.aPromoteUnread}
+              </span>
+            ) : null}
           </button>
-          <button
-            type="button"
-            className={`navItem ${props.active === 'l_tokens' ? 'active' : ''}`}
-            onClick={() => props.onNavigate('l_tokens')}
-          >
-            L_Tokens
-          </button>
+          {props.lTokensEnabled ? (
+            <button
+              type="button"
+              className={`navItem ${props.active === 'l_tokens' ? 'active' : ''}`}
+              onClick={() => props.onNavigate('l_tokens')}
+            >
+              L_Tokens
+            </button>
+          ) : null}
         </nav>
+
+        <SMarkModeToggle />
       </aside>
 
       <main className="content">{props.children}</main>

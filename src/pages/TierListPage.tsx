@@ -1,9 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   chartFromIsoIncludingPromotion,
   fetchATokens,
   fetchLTokens,
+  fetchMarkCycles,
+  fetchSMarkMode,
+  fetchToken,
   fetchTokenCandles,
+  postManualMarkSell,
+  subscribeATokenPromoteEvents,
   type CandleDto,
   type TokenDto,
 } from '../lib/api'
@@ -56,6 +61,8 @@ type Props = {
   title: string
   description: string
   fastPriceHint: string
+  focusMint?: string | null
+  onFocusMintHandled?: () => void
 }
 
 export default function TierListPage(props: Props) {
@@ -85,6 +92,38 @@ export default function TierListPage(props: Props) {
     downCount: number
     downNeeded: number
   } | null>(null)
+  const [newMintHighlights, setNewMintHighlights] = useState<Set<string>>(() => new Set())
+  const knownMintsRef = useRef<Set<string> | null>(null)
+  const [manualSellEnabled, setManualSellEnabled] = useState(false)
+  const [manualSellBusy, setManualSellBusy] = useState(false)
+  const [manualSellError, setManualSellError] = useState<string | null>(null)
+  const [missingFocus, setMissingFocus] = useState<{
+    mint: string
+    name: string
+    tier: string | null
+    exitReason: string | null
+    cycleId: number | null
+  } | null>(null)
+
+  useEffect(() => {
+    if (props.tier !== 'a') return undefined
+    let cancelled = false
+    const pull = () => {
+      void fetchSMarkMode()
+        .then((m) => {
+          if (!cancelled) setManualSellEnabled(m.manual_sell_enabled === true)
+        })
+        .catch(() => {
+          if (!cancelled) setManualSellEnabled(false)
+        })
+    }
+    pull()
+    const id = window.setInterval(pull, 2000)
+    return () => {
+      cancelled = true
+      window.clearInterval(id)
+    }
+  }, [props.tier])
 
   const load = useCallback(async (opts?: { background?: boolean }) => {
     const background = opts?.background === true
@@ -93,6 +132,32 @@ export default function TierListPage(props: Props) {
       const params = { limit: 500, offset: 0, search: searchApplied || undefined }
       const rows =
         props.tier === 'a' ? await fetchATokens(params) : await fetchLTokens(params)
+
+      if (props.tier === 'a') {
+        const nextMints = new Set(rows.map((r) => r.mint))
+        if (knownMintsRef.current != null) {
+          const fresh: string[] = []
+          for (const m of nextMints) {
+            if (!knownMintsRef.current.has(m)) fresh.push(m)
+          }
+          if (fresh.length > 0) {
+            setNewMintHighlights((prev) => {
+              const n = new Set(prev)
+              for (const m of fresh) n.add(m)
+              return n
+            })
+            window.setTimeout(() => {
+              setNewMintHighlights((prev) => {
+                const n = new Set(prev)
+                for (const m of fresh) n.delete(m)
+                return n
+              })
+            }, 12_000)
+          }
+        }
+        knownMintsRef.current = nextMints
+      }
+
       setTokens(rows)
       setSelected((prev) => (prev ? rows.find((r) => r.mint === prev.mint) ?? prev : null))
       setError(null)
@@ -133,15 +198,103 @@ export default function TierListPage(props: Props) {
     return () => window.clearInterval(id)
   }, [load, tierPollMs])
 
+  useEffect(() => {
+    if (props.tier !== 'a') return undefined
+    let debounce: number | undefined
+    const unsub = subscribeATokenPromoteEvents((ev) => {
+      const mint = ev.mint?.trim()
+      if (mint) {
+        setNewMintHighlights((prev) => new Set(prev).add(mint))
+        window.setTimeout(() => {
+          setNewMintHighlights((prev) => {
+            const n = new Set(prev)
+            n.delete(mint)
+            return n
+          })
+        }, 12_000)
+      }
+      if (debounce != null) window.clearTimeout(debounce)
+      debounce = window.setTimeout(() => {
+        void load({ background: true }).catch(() => {})
+      }, 80)
+    })
+    return () => {
+      unsub()
+      if (debounce != null) window.clearTimeout(debounce)
+    }
+  }, [props.tier, load])
+
+  useEffect(() => {
+    const mint = props.focusMint?.trim()
+    if (!mint || props.tier !== 'a') {
+      setMissingFocus(null)
+      return
+    }
+    const row = tokens.find((t) => t.mint === mint)
+    if (row) {
+      setSelected(row)
+      setMissingFocus(null)
+      props.onFocusMintHandled?.()
+      return
+    }
+    if (loading) return
+
+    let cancelled = false
+    void (async () => {
+      try {
+        const [tok, cycles] = await Promise.all([
+          fetchToken(mint),
+          fetchMarkCycles({ mint, activeOnA: false, history: 's_marked', limit: 3 }),
+        ])
+        if (cancelled) return
+        if (tok.tier === 'a') {
+          setTokens((prev) => (prev.some((t) => t.mint === mint) ? prev : [tok, ...prev]))
+          setSelected(tok)
+          setMissingFocus(null)
+          props.onFocusMintHandled?.()
+          return
+        }
+        const latest = cycles[0]
+        setMissingFocus({
+          mint,
+          name: tok.name?.trim() || latest?.token_name?.trim() || mint.slice(0, 8),
+          tier: tok.tier ?? null,
+          exitReason: latest?.s_mark_reason ?? latest?.close_reason ?? null,
+          cycleId: latest?.id ?? null,
+        })
+        props.onFocusMintHandled?.()
+      } catch {
+        if (!cancelled) {
+          setMissingFocus({
+            mint,
+            name: mint.slice(0, 8),
+            tier: null,
+            exitReason: null,
+            cycleId: null,
+          })
+          props.onFocusMintHandled?.()
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [props.focusMint, props.tier, tokens, loading, props.onFocusMintHandled])
+
   const rows = useMemo(() => {
     return tokens.map((t) => {
       const change =
-        t.price_change_pct != null && Number.isFinite(t.price_change_pct)
-          ? t.price_change_pct
-          : pctChange(t.first_price_usd, t.price_usd)
+        props.tier === 'a'
+          ? t.change_vs_a_mark_pct != null && Number.isFinite(t.change_vs_a_mark_pct)
+            ? t.change_vs_a_mark_pct
+            : pctChange(t.a_mark_buy_price_usd ?? null, t.price_usd)
+          : t.price_change_pct != null && Number.isFinite(t.price_change_pct)
+            ? t.price_change_pct
+            : pctChange(t.first_price_usd, t.price_usd)
       return { ...t, change }
     })
-  }, [tokens])
+  }, [tokens, props.tier])
 
   const closeTokenModal = useCallback(() => {
     setSelected(null)
@@ -153,7 +306,25 @@ export default function TierListPage(props: Props) {
     setChartSMarkPrice(null)
     setChartSMarkReason(null)
     setChartMarkWatch(null)
+    setManualSellBusy(false)
+    setManualSellError(null)
   }, [])
+
+  const submitManualSell = useCallback(async () => {
+    const mint = selected?.mint
+    if (!mint || !manualSellEnabled) return
+    setManualSellBusy(true)
+    setManualSellError(null)
+    try {
+      await postManualMarkSell(mint)
+      closeTokenModal()
+      await load({ background: true })
+    } catch (e) {
+      setManualSellError(e instanceof Error ? e.message : 'Sell failed')
+    } finally {
+      setManualSellBusy(false)
+    }
+  }, [selected?.mint, manualSellEnabled, closeTokenModal, load])
 
   useEffect(() => {
     const mint = selected?.mint
@@ -219,6 +390,22 @@ export default function TierListPage(props: Props) {
 
   return (
     <div className="page">
+      {missingFocus ? (
+        <div className="aFocusMissingBanner" role="status">
+          <strong>{missingFocus.name}</strong> was promoted to A but is no longer on this list
+          {missingFocus.tier === 'a'
+            ? ' (refreshing…)'
+            : missingFocus.exitReason
+              ? ` — exited: ${missingFocus.exitReason.replace(/_/g, ' ')}`
+              : ' — likely removed when pump.fun DEX badge lagged after graduation'}
+          . Check <strong>Buy / Sell → Mark signals → S_marked</strong> for history
+          {missingFocus.cycleId != null ? ` (cycle #${missingFocus.cycleId})` : ''}.
+          <button type="button" className="pill" style={{ marginLeft: 10 }} onClick={() => setMissingFocus(null)}>
+            Dismiss
+          </button>
+        </div>
+      ) : null}
+
       <div className="pageHeader">
         <div>
           <h1>{props.title}</h1>
@@ -255,6 +442,20 @@ export default function TierListPage(props: Props) {
         </div>
       ) : null}
 
+      {props.tier === 'a' && newMintHighlights.size > 0 ? (
+        <div className="aPromoteBanner" role="status">
+          <span className="aPromoteBannerBadge">NEW</span>
+          <span>
+            {newMintHighlights.size === 1
+              ? '1 token just moved to A_tokens'
+              : `${newMintHighlights.size} tokens just moved to A_tokens`}
+          </span>
+          <span className="muted" style={{ fontSize: 12 }}>
+            — highlighted in the list below
+          </span>
+        </div>
+      ) : null}
+
       <div className="card">
         <div className="tableWrap">
           <table className="table watchTable">
@@ -266,7 +467,9 @@ export default function TierListPage(props: Props) {
                 <th style={{ width: 120 }}>First USD</th>
                 <th style={{ width: 120 }}>Last USD</th>
                 <th style={{ width: 140 }}>Promoted</th>
-                <th style={{ width: 90, textAlign: 'right' }}>Change</th>
+                <th style={{ width: 96, textAlign: 'right' }} title={props.tier === 'a' ? 'Current token USD vs A_mark buy (S_mark rules use this)' : 'Change vs first seen price'}>
+                  {props.tier === 'a' ? 'vs A_mark' : 'Change'}
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -285,8 +488,14 @@ export default function TierListPage(props: Props) {
               ) : (
                 rows.map((t) => {
                   const cls = t.change == null ? 'muted' : t.change >= 0 ? 'pos' : 'neg'
+                  const isNew = props.tier === 'a' && newMintHighlights.has(t.mint)
                   return (
-                    <tr key={t.mint} style={{ cursor: 'pointer' }} onClick={() => setSelected(t)}>
+                    <tr
+                      key={t.mint}
+                      className={isNew ? 'tierRowNew' : undefined}
+                      style={{ cursor: 'pointer' }}
+                      onClick={() => setSelected(t)}
+                    >
                       <td className="tableTokenName" title={t.name || t.mint}>
                         {t.name?.trim() || '—'}
                       </td>
@@ -302,7 +511,7 @@ export default function TierListPage(props: Props) {
                               DEX
                             </span>
                           ) : null}
-                          {t.is_pump_live !== true && t.is_dex !== true ? (
+                          {props.tier !== 'a' && t.is_pump_live !== true && t.is_dex !== true ? (
                             <span className="muted" style={{ fontSize: 12 }}>
                               —
                             </span>
@@ -310,12 +519,22 @@ export default function TierListPage(props: Props) {
                         </div>
                       </td>
                       <td>{fmtMcap(t.jupiter_mcap_usd)}</td>
+                      <td style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtUsd(t.first_price_usd)}</td>
+                      <td style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtUsd(t.price_usd)}</td>
                       <td className="muted" style={{ fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>
                         {fmtDateTime(t.promoted_at)}
                       </td>
-                      <td style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtUsd(t.first_price_usd)}</td>
-                      <td style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtUsd(t.price_usd)}</td>
-                      <td className={cls} style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                      <td
+                        className={cls}
+                        style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}
+                        title={
+                          props.tier === 'a' && t.a_mark_buy_price_usd != null
+                            ? `A_mark buy ${fmtUsd(t.a_mark_buy_price_usd)} → now ${fmtUsd(t.price_usd)}`
+                            : props.tier === 'a'
+                              ? 'A_mark buy price unavailable'
+                              : `First ${fmtUsd(t.first_price_usd)} → now ${fmtUsd(t.price_usd)}`
+                        }
+                      >
                         {fmtPct(t.change)}
                       </td>
                     </tr>
@@ -350,6 +569,10 @@ export default function TierListPage(props: Props) {
           sMarkPriceUsd={chartSMarkPrice}
           sMarkReason={chartSMarkReason}
           markWatch={chartMarkWatch}
+          manualSellEnabled={props.tier === 'a' && manualSellEnabled}
+          onManualSell={() => void submitManualSell()}
+          manualSellBusy={manualSellBusy}
+          manualSellError={manualSellError}
         />
       ) : null}
     </div>

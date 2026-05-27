@@ -465,7 +465,9 @@ export default function TokenCandleChart(props: {
                 ? 'exit'
                 : sMarkReason === 'token_deleted'
                   ? 'del'
-                  : 'S'
+                  : sMarkReason === 'manual_sell'
+                    ? 'you'
+                    : 'S'
 
     return {
       id: 's-mark',

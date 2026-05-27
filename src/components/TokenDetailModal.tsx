@@ -56,6 +56,11 @@ type Props = {
   promotedAt?: string | null
   promotedPriceUsd?: number | null
   chartTier?: 'a' | 'l' | null
+  /** Manual S_mark: show Sell when open A_mark cycle exists. */
+  manualSellEnabled?: boolean
+  onManualSell?: () => void
+  manualSellBusy?: boolean
+  manualSellError?: string | null
 }
 
 export default function TokenDetailModal(props: Props) {
@@ -79,7 +84,14 @@ export default function TokenDetailModal(props: Props) {
     promotedAt,
     promotedPriceUsd,
     chartTier,
+    manualSellEnabled = false,
+    onManualSell,
+    manualSellBusy = false,
+    manualSellError,
   } = props
+
+  const showManualSell =
+    manualSellEnabled && chartTier === 'a' && markWatch?.status === 'open' && !sMarkAt
 
   const tierLabel =
     chartTier === 'a' ? 'A-token' : chartTier === 'l' ? 'L-token' : selected.tier === 'a' ? 'A-token' : selected.tier === 'l' ? 'L-token' : null
@@ -156,6 +168,18 @@ export default function TokenDetailModal(props: Props) {
                   </svg>
                 </span>
               </a>
+              {showManualSell ? (
+                <button
+                  type="button"
+                  className="btnSellSm"
+                  style={{ padding: '8px 14px', fontSize: 13 }}
+                  disabled={manualSellBusy}
+                  title="S_mark at current Jupiter price and remove from A_tokens"
+                  onClick={() => onManualSell?.()}
+                >
+                  {manualSellBusy ? 'Selling…' : 'Sell'}
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="btnPrimary"
@@ -307,8 +331,10 @@ export default function TokenDetailModal(props: Props) {
                   </span>
                 ) : sMarkAt ? (
                   <span> · S_mark recorded</span>
+                ) : chartTier === 'a' && liveChart && manualSellEnabled ? (
+                  <span> · manual sell — use Sell when ready (fresh Jupiter price)</span>
                 ) : chartTier === 'a' && liveChart ? (
-                  <span> · no S_mark yet (3 down ticks, 4× profit, 40% drawdown, or DEX lost)</span>
+                  <span> · no S_mark yet (auto rules: TP, drawdown, trailing, time stop, or DEX lost)</span>
                 ) : null}
               </span>
             ) : null}
@@ -327,6 +353,12 @@ export default function TokenDetailModal(props: Props) {
           </div>
         </div>
 
+        {manualSellError ? (
+          <div className="errorBox" style={{ margin: '0 14px 8px' }}>
+            <div className="errorTitle">Sell failed</div>
+            <div className="errorMsg">{manualSellError}</div>
+          </div>
+        ) : null}
         {candlesError ? (
           <div className="errorBox" style={{ margin: 14 }}>
             <div className="errorTitle">Failed to load price history</div>

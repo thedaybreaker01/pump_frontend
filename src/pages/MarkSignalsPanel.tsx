@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Bar,
   BarChart,
@@ -10,15 +10,18 @@ import {
   YAxis,
 } from 'recharts'
 import TokenCandleChart from '../components/TokenCandleChart'
-import { TIER_A_CHART_BUCKET_SECS, TIER_A_POLL_MS } from '../lib/chartRange'
+import { MARK_POLL_MS, TIER_A_CHART_BUCKET_SECS, TIER_A_POLL_MS } from '../lib/chartRange'
 import {
   chartFromIsoIncludingMarkEvents,
   fetchMarkCycleDetail,
   fetchAllMarkCycles,
   fetchMarkCycles,
+  fetchMarkPaperFeed,
   fetchMarkSummary,
   type MarkPnlSummaryDto,
+  type MarkPaperFeedDto,
   fetchTokenCandles,
+  subscribeMarkCycleEvents,
   type CandleDto,
   type LifecycleLogDto,
   type MarkCycleDetailDto,
@@ -75,8 +78,33 @@ function fmtPct(v: number | null | undefined) {
   return `${sign}${v.toFixed(2)}%`
 }
 
-/** Paper SOL P/L (preferred when `pnl_sol` is set on the cycle). */
-function markPnlSol(c: MarkCycleDto): { sol: number; pct: number } | null {
+/** Token USD % change from A_mark buy → S_mark sell (what drawdown / TP rules use). */
+function markTokenPricePct(c: MarkCycleDto): number | null {
+  const buy = c.buy_price_usd
+  const sell = c.sell_price_usd
+  if (sell == null || !Number.isFinite(sell) || !Number.isFinite(buy) || buy <= 0) return null
+  return ((sell - buy) / buy) * 100
+}
+
+function effectiveBuySol(c: MarkCycleDto, paperBuySol: number): number | null {
+  if (c.buy_sol != null && Number.isFinite(c.buy_sol) && c.buy_sol > 0) return c.buy_sol
+  if (c.status === 's_marked' && c.s_mark_at) return paperBuySol
+  return null
+}
+
+function effectiveSellSol(c: MarkCycleDto, paperBuySol: number): number | null {
+  if (c.sell_sol != null && Number.isFinite(c.sell_sol)) return c.sell_sol
+  const buySol = effectiveBuySol(c, paperBuySol)
+  const sell = c.sell_price_usd
+  const buy = c.buy_price_usd
+  if (buySol == null || sell == null || !Number.isFinite(sell) || !Number.isFinite(buy) || buy <= 0) {
+    return null
+  }
+  return buySol * (sell / buy)
+}
+
+/** Paper SOL P/L (DB field or estimated from token USD at A_mark / S_mark). */
+function markPnlSol(c: MarkCycleDto, paperBuySol = PAPER_BUY_SOL_DEFAULT): { sol: number; pct: number } | null {
   if (
     c.pnl_sol != null &&
     c.pnl_sol_pct != null &&
@@ -85,7 +113,11 @@ function markPnlSol(c: MarkCycleDto): { sol: number; pct: number } | null {
   ) {
     return { sol: c.pnl_sol, pct: c.pnl_sol_pct }
   }
-  return null
+  const buySol = effectiveBuySol(c, paperBuySol)
+  const sellSol = effectiveSellSol(c, paperBuySol)
+  if (buySol == null || sellSol == null) return null
+  const sol = sellSol - buySol
+  return { sol, pct: buySol > 0 ? (sol / buySol) * 100 : 0 }
 }
 
 /** Legacy token USD price delta (not wallet P/L). */
@@ -160,16 +192,43 @@ function sMarkReasonLabel(reason: string | null | undefined) {
     dex_badge_lost: 'DEX lost',
     tier_exit: 'Tier exit',
     token_deleted: 'Token deleted',
+    manual_sell: 'Manual sell',
   }
   return labels[reason] ?? reason
 }
 
-function outcomeBadge(c: MarkCycleDto): { text: string; className: string } | null {
-  const pnl = markPnlSol(c)
+function outcomeBadge(c: MarkCycleDto, paperBuySol = PAPER_BUY_SOL_DEFAULT): { text: string; className: string } | null {
+  const pnl = markPnlSol(c, paperBuySol)
   if (!pnl) return null
   if (pnl.sol > 0) return { text: 'Win', className: 'markOutcomeWin' }
   if (pnl.sol < 0) return { text: 'Loss', className: 'markOutcomeLoss' }
   return { text: 'Flat', className: 'markOutcomeFlat' }
+}
+
+function formatPaperFeedLine(ev: MarkPaperFeedDto): string {
+  const d = ev.detail
+  const name = ev.token_name?.trim() || `${ev.mint.slice(0, 8)}…`
+  if (ev.event_type === 'a_mark') {
+    const buySol =
+      typeof d.buy_sol === 'number'
+        ? d.buy_sol
+        : ev.buy_sol != null
+          ? ev.buy_sol
+          : PAPER_BUY_SOL_DEFAULT
+    const px = fmtUsd(typeof d.buy_price_usd === 'number' ? d.buy_price_usd : null)
+    return `${name} · paper buy ${fmtSol(buySol)} · token ${px} · ${String(d.reason ?? '—')}`
+  }
+  if (ev.event_type === 's_mark') {
+    const pnlSol =
+      typeof d.pnl_sol === 'number' ? d.pnl_sol : ev.pnl_sol != null ? ev.pnl_sol : null
+    const sellSol = typeof d.sell_sol === 'number' ? d.sell_sol : ev.sell_sol
+    const px = fmtUsd(typeof d.sell_price_usd === 'number' ? d.sell_price_usd : null)
+    if (pnlSol != null && sellSol != null) {
+      return `${name} · paper sell ${fmtSol(sellSol)} · P/L ${fmtSignedSol(pnlSol)} · token ${px} · ${String(d.reason ?? '—')}`
+    }
+    return `${name} · paper sell · token ${px} · ${String(d.reason ?? '—')}`
+  }
+  return name
 }
 
 function formatLifecycleLine(ev: LifecycleLogDto): string {
@@ -248,7 +307,7 @@ function cycleBucketSecs(cycle: MarkCycleDto): 1 | 5 | 60 {
   return end - start < 20 * 60_000 ? TIER_A_CHART_BUCKET_SECS : 60
 }
 
-type ListMode = 'on_a' | 's_marked' | 'demoted'
+type ListMode = 'on_a' | 's_marked'
 
 export default function MarkSignalsPanel() {
   const [listMode, setListMode] = useState<ListMode>('s_marked')
@@ -264,6 +323,9 @@ export default function MarkSignalsPanel() {
   } | null>(null)
   const [pnlSummary, setPnlSummary] = useState<MarkPnlSummaryDto | null>(null)
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [live, setLive] = useState(true)
+  const [paperFeed, setPaperFeed] = useState<MarkPaperFeedDto[]>([])
   const [error, setError] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [detail, setDetail] = useState<MarkCycleDetailDto | null>(null)
@@ -276,41 +338,100 @@ export default function MarkSignalsPanel() {
   const [chartSMarkReason, setChartSMarkReason] = useState<string | null>(null)
   const [chartLoading, setChartLoading] = useState(false)
   const [detailTab, setDetailTab] = useState<'snapshots' | 'log'>('snapshots')
+  /** Avoid refetching candles when the 1s list poll updates `cycles`. */
+  const chartFetchKeyRef = useRef('')
+  const chartApiCandlesRef = useRef<CandleDto[]>([])
 
-  const load = useCallback(async (from: string, to: string) => {
-    setLoading(true)
-    setError(null)
+  const effectiveToIso = useCallback(
+    (to: string) => {
+      if (!live) return new Date(to).toISOString()
+      const userTo = new Date(to)
+      const now = new Date()
+      if (Number.isNaN(userTo.getTime()) || userTo < now) return now.toISOString()
+      return userTo.toISOString()
+    },
+    [live],
+  )
+
+  const loadFeed = useCallback(async () => {
     try {
-      const fromRfc = new Date(from).toISOString()
-      const toRfc = new Date(to).toISOString()
-      const summaryOpts =
-        listMode === 'on_a'
-          ? { from: fromRfc, to: toRfc, activeOnA: true as const }
-          : { from: fromRfc, to: toRfc, history: listMode as 's_marked' | 'demoted' }
-
-      const sum = await fetchMarkSummary(summaryOpts)
-
-      const list =
-        listMode === 's_marked' || listMode === 'demoted'
-          ? await fetchAllMarkCycles(summaryOpts)
-          : await fetchMarkCycles({ ...summaryOpts, limit: 500 })
-
-      setCycles(list)
-      setSummary(sum.counts)
-      setPnlSummary(listMode === 's_marked' ? sum.pnl ?? null : null)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load mark history')
-      setCycles([])
-      setSummary(null)
-      setPnlSummary(null)
-    } finally {
-      setLoading(false)
+      const feed = await fetchMarkPaperFeed(50)
+      setPaperFeed(feed)
+    } catch {
+      /* keep last feed on transient errors */
     }
-  }, [listMode])
+  }, [])
+
+  const load = useCallback(
+    async (from: string, to: string, background = false) => {
+      if (background) setRefreshing(true)
+      else {
+        setLoading(true)
+        setError(null)
+      }
+      try {
+        const fromRfc = new Date(from).toISOString()
+        const toRfc = effectiveToIso(to)
+        const summaryOpts =
+          listMode === 'on_a'
+            ? { from: fromRfc, to: toRfc, activeOnA: true as const }
+            : { from: fromRfc, to: toRfc, history: 's_marked' as const }
+
+        const [sum, list] = await Promise.all([
+          fetchMarkSummary(summaryOpts),
+          listMode === 's_marked'
+            ? fetchAllMarkCycles(summaryOpts)
+            : fetchMarkCycles({ ...summaryOpts, limit: 500 }),
+        ])
+
+        setCycles(list)
+        setSummary(sum.counts)
+        setPnlSummary(listMode === 's_marked' ? sum.pnl ?? null : null)
+        if (!background) setError(null)
+      } catch (e) {
+        if (!background) {
+          setError(e instanceof Error ? e.message : 'Failed to load mark history')
+          setCycles([])
+          setSummary(null)
+          setPnlSummary(null)
+        }
+      } finally {
+        if (background) setRefreshing(false)
+        else setLoading(false)
+      }
+    },
+    [listMode, effectiveToIso],
+  )
 
   useEffect(() => {
     void load(fromIso, toIso)
-  }, [fromIso, toIso, load])
+    void loadFeed()
+  }, [fromIso, toIso, load, loadFeed])
+
+  useEffect(() => {
+    if (!live) return undefined
+    const id = window.setInterval(() => {
+      void load(fromIso, toIso, true)
+      void loadFeed()
+    }, MARK_POLL_MS)
+    return () => window.clearInterval(id)
+  }, [live, fromIso, toIso, load, loadFeed])
+
+  useEffect(() => {
+    if (!live) return undefined
+    let debounce: number | undefined
+    const unsub = subscribeMarkCycleEvents(() => {
+      if (debounce != null) window.clearTimeout(debounce)
+      debounce = window.setTimeout(() => {
+        void load(fromIso, toIso, true)
+        void loadFeed()
+      }, 120)
+    })
+    return () => {
+      unsub()
+      if (debounce != null) window.clearTimeout(debounce)
+    }
+  }, [live, fromIso, toIso, load, loadFeed])
 
   useEffect(() => {
     setSelectedId(null)
@@ -318,6 +439,8 @@ export default function MarkSignalsPanel() {
   }, [listMode])
 
   useEffect(() => {
+    chartFetchKeyRef.current = ''
+    chartApiCandlesRef.current = []
     if (selectedId == null) {
       setDetail(null)
       return undefined
@@ -340,31 +463,32 @@ export default function MarkSignalsPanel() {
   }, [selectedId])
 
   useEffect(() => {
-    if (selectedId == null || listMode !== 'on_a') return undefined
+    if (selectedId == null || !live) return undefined
     const id = window.setInterval(() => {
       void fetchMarkCycleDetail(selectedId)
         .then((d) => setDetail(d))
         .catch(() => {})
-    }, TIER_A_POLL_MS)
+    }, MARK_POLL_MS)
     return () => window.clearInterval(id)
-  }, [selectedId, listMode])
+  }, [selectedId, live])
 
+  // Full candle fetch only when cycle / window changes — not on every 1s list refresh.
   useEffect(() => {
-    const cycle = cycles.find((c) => c.id === selectedId) ?? detail?.cycle ?? null
-    if (!cycle) {
+    if (selectedId == null) {
       setChartCandles([])
       setChartPromotedAt(null)
       setChartPromotedPrice(null)
       setChartSMarkAt(null)
       setChartSMarkPrice(null)
       setChartSMarkReason(null)
+      setChartLoading(false)
       return undefined
     }
-    let cancelled = false
-    setChartLoading(true)
-    if (detailLoading || detail?.cycle.id !== cycle.id) {
+    if (detailLoading || detail?.cycle.id !== selectedId) {
       return undefined
     }
+
+    const cycle = detail.cycle
     const bucketSecs = cycleBucketSecs(cycle)
     const from = chartFromIsoIncludingMarkEvents(
       null,
@@ -372,7 +496,16 @@ export default function MarkSignalsPanel() {
       cycle.s_mark_at,
       cycle.closed_at,
     )
-    const snaps = detail?.snapshots ?? []
+    const fetchKey = `${selectedId}|${bucketSecs}|${from}`
+    if (chartFetchKeyRef.current === fetchKey) {
+      return undefined
+    }
+
+    chartFetchKeyRef.current = fetchKey
+    let cancelled = false
+    setChartLoading(true)
+    const snaps = detail.snapshots ?? []
+
     void fetchTokenCandles(cycle.mint, {
       limit: 2500,
       fromIso: from,
@@ -382,6 +515,7 @@ export default function MarkSignalsPanel() {
       .then((payload) => {
         if (cancelled) return
         const apiCandles = payload.candles.filter((c) => (c.samples ?? 0) > 0)
+        chartApiCandlesRef.current = apiCandles
         const candles = mergeMarkChartCandles(snaps, apiCandles)
         setChartCandles(candles)
         setChartPromotedAt(cycle.a_mark_at)
@@ -393,6 +527,7 @@ export default function MarkSignalsPanel() {
       })
       .catch(() => {
         if (!cancelled) {
+          chartApiCandlesRef.current = []
           setChartCandles(mergeMarkChartCandles(snaps, []))
         }
       })
@@ -402,7 +537,25 @@ export default function MarkSignalsPanel() {
     return () => {
       cancelled = true
     }
-  }, [selectedId, cycles, detail, detailLoading, fromIso, listMode])
+  }, [
+    selectedId,
+    detailLoading,
+    detail?.cycle.id,
+    detail?.cycle.a_mark_at,
+    detail?.cycle.s_mark_at,
+    detail?.cycle.closed_at,
+    detail?.cycle.buy_price_usd,
+    detail?.cycle.sell_price_usd,
+    detail?.cycle.s_mark_reason,
+  ])
+
+  // Refresh snapshot ticks on live detail poll without reloading the chart.
+  useEffect(() => {
+    if (selectedId == null || detail?.cycle.id !== selectedId) return
+    if (chartFetchKeyRef.current === '') return
+    const snaps = detail?.snapshots ?? []
+    setChartCandles(mergeMarkChartCandles(snaps, chartApiCandlesRef.current))
+  }, [selectedId, detail?.cycle.id, detail?.snapshots])
 
   const applyPreset = (p: Preset) => {
     setPreset(p)
@@ -416,7 +569,7 @@ export default function MarkSignalsPanel() {
     [cycles, selectedId, detail],
   )
 
-  const selectedPnlSol = selectedCycle ? markPnlSol(selectedCycle) : null
+  const selectedPnlSol = selectedCycle ? markPnlSol(selectedCycle, paperBuySol) : null
   const selectedPnlPrice = selectedCycle ? markPnlPrice(selectedCycle) : null
 
   const paperBuySol =
@@ -425,7 +578,7 @@ export default function MarkSignalsPanel() {
   const solStats = useMemo(() => {
     if (listMode !== 's_marked') return null
     const rows = cycles
-      .map((c) => ({ c, pnl: markPnlSol(c) }))
+      .map((c) => ({ c, pnl: markPnlSol(c, paperBuySol) }))
       .filter((x): x is { c: MarkCycleDto; pnl: { sol: number; pct: number } } => x.pnl != null)
     const totalPnl = pnlSummary?.total_pnl_sol ?? rows.reduce((s, x) => s + x.pnl.sol, 0)
     const wins = pnlSummary?.wins ?? rows.filter((x) => x.pnl.sol > 0).length
@@ -458,13 +611,10 @@ export default function MarkSignalsPanel() {
         {listMode === 's_marked' && (
           <>
             <strong>Paper trade history</strong> — each A_mark simulates buying{' '}
-            <strong>{paperBuySol} SOL</strong>; S_mark simulates selling back to SOL. P/L is net SOL
-            (not token price alone). No wallet transactions.
-          </>
-        )}
-        {listMode === 'demoted' && (
-          <>
-            <strong>Demoted</strong> — left A without S_mark (below tier rules). Full lifecycle still available per row.
+            <strong>{paperBuySol} SOL</strong>; S_mark simulates selling back to SOL. P/L is net SOL.
+            <strong> Drawdown stop</strong> uses token USD vs A_mark buy (
+            <code>s_mark_drawdown_from_buy_pct</code>, e.g. 20% below buy) on ~1s Jupiter ticks — if
+            price gaps between ticks, exit % can look worse than that threshold. No wallet transactions.
           </>
         )}
       </p>
@@ -484,13 +634,6 @@ export default function MarkSignalsPanel() {
             onClick={() => setListMode('s_marked')}
           >
             Paper P/L history
-          </button>
-          <button
-            type="button"
-            className={`rangeBtn${listMode === 'demoted' ? ' active' : ''}`}
-            onClick={() => setListMode('demoted')}
-          >
-            Demoted (no S)
           </button>
         </div>
         <div className="rangeBtns" role="group" aria-label="Range preset">
@@ -525,7 +668,56 @@ export default function MarkSignalsPanel() {
             style={{ width: 168, marginLeft: 4 }}
           />
         </label>
+        <label className="markLiveToggle muted" style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <input
+            type="checkbox"
+            checked={live}
+            onChange={(e) => setLive(e.target.checked)}
+          />
+          Live · refresh {MARK_POLL_MS / 1000}s
+          {refreshing ? <span className="markLivePulse"> · updating…</span> : null}
+        </label>
       </div>
+
+      {paperFeed.length > 0 ? (
+        <div className="markLiveFeed">
+          <div className="markLiveFeedTitle">
+            Recent paper trades
+            {live ? <span className="markLiveBadge">LIVE</span> : null}
+          </div>
+          <ul className="markLiveFeedList">
+            {paperFeed.slice(0, 12).map((ev) => {
+              const isBuy = ev.event_type === 'a_mark'
+              const pnl =
+                ev.event_type === 's_mark' && ev.pnl_sol != null && Number.isFinite(ev.pnl_sol)
+                  ? ev.pnl_sol
+                  : typeof ev.detail.pnl_sol === 'number'
+                    ? (ev.detail.pnl_sol as number)
+                    : null
+              return (
+                <li key={ev.id}>
+                  <button
+                    type="button"
+                    className="markLiveFeedItem"
+                    onClick={() => {
+                      if (ev.cycle_id != null) setSelectedId(ev.cycle_id)
+                    }}
+                  >
+                    <span className={`markLiveFeedTag${isBuy ? ' markLiveFeedTag--buy' : ' markLiveFeedTag--sell'}`}>
+                      {isBuy ? 'BUY' : 'SELL'}
+                    </span>
+                    <span className="markLiveFeedTime tabular">{fmtShortDateTime(ev.event_at)}</span>
+                    <span className="markLiveFeedText">{formatPaperFeedLine(ev)}</span>
+                    {pnl != null ? (
+                      <span className={`markLiveFeedPnl tabular ${pnlClass(pnl)}`}>{fmtSignedSol(pnl)}</span>
+                    ) : null}
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      ) : null}
 
       {listMode === 's_marked' && solStats && !loading ? (
         <div className="markSolDashboard">
@@ -601,13 +793,9 @@ export default function MarkSignalsPanel() {
         </div>
       ) : null}
 
-      {summary && listMode !== 's_marked' ? (
+      {summary && listMode === 'on_a' ? (
         <div className="markSummaryRow">
-          {listMode === 'on_a' ? (
-            <span className="pill">{summary.open} open on A</span>
-          ) : (
-            <span className="pill">{summary.demoted_without_s_mark} demoted without S_mark</span>
-          )}
+          <span className="pill">{summary.open} open on A</span>
         </div>
       ) : null}
 
@@ -656,18 +844,18 @@ export default function MarkSignalsPanel() {
                   <td colSpan={tableColSpan} className="muted" style={{ padding: 16 }}>
                     {listMode === 's_marked'
                       ? 'No S_mark cycles in this date range.'
-                      : listMode === 'demoted'
-                        ? 'No demoted-without-S_mark cycles in this range.'
-                        : 'No open cycles on A_tokens.'}
+                      : 'No open cycles on A_tokens.'}
                   </td>
                 </tr>
               ) : (
                 cycles.map((c) => {
-                  const pnlSol = markPnlSol(c)
+                  const pnlSol = markPnlSol(c, paperBuySol)
+                  const tokenPct = markTokenPricePct(c)
                   const pnlPrice = markPnlPrice(c)
-                  const badge = outcomeBadge(c)
+                  const badge = outcomeBadge(c, paperBuySol)
                   const isSelected = selectedId === c.id
-                  const buySol = c.buy_sol ?? paperBuySol
+                  const buySol = effectiveBuySol(c, paperBuySol) ?? paperBuySol
+                  const sellSol = effectiveSellSol(c, paperBuySol)
                   return (
                     <tr
                       key={c.id}
@@ -684,7 +872,7 @@ export default function MarkSignalsPanel() {
                         <>
                           <td className="tabular">{fmtShortDateTime(c.s_mark_at ?? c.closed_at)}</td>
                           <td>{solTradeCell(buySol, c.buy_price_usd, c.a_mark_mcap_usd)}</td>
-                          <td>{solTradeCell(c.sell_sol, c.sell_price_usd, c.s_mark_mcap_usd)}</td>
+                          <td>{solTradeCell(sellSol, c.sell_price_usd, c.s_mark_mcap_usd)}</td>
                           <td
                             className={`tabular ${pnlSol ? pnlClass(pnlSol.sol) : pnlPrice ? pnlClass(pnlPrice.usd) : 'muted'}`}
                             style={{ textAlign: 'right', fontWeight: 600 }}
@@ -692,14 +880,22 @@ export default function MarkSignalsPanel() {
                             {pnlSol ? (
                               <>
                                 <div>{fmtSignedSol(pnlSol.sol)}</div>
-                                <div style={{ fontSize: 11, fontWeight: 500 }}>{fmtPct(pnlSol.pct)}</div>
+                                <div style={{ fontSize: 11, fontWeight: 500 }}>{fmtPct(pnlSol.pct)} SOL</div>
+                                {c.pnl_sol == null && c.s_mark_at ? (
+                                  <div className="muted" style={{ fontSize: 10, fontWeight: 500 }} title="Estimated from token USD; restart API after migration to persist">
+                                    est.
+                                  </div>
+                                ) : null}
+                                {tokenPct != null ? (
+                                  <div className="muted" style={{ fontSize: 10, fontWeight: 500 }} title="Token USD vs A_mark buy (drawdown / TP rules)">
+                                    token {fmtPct(tokenPct)}
+                                  </div>
+                                ) : null}
                               </>
                             ) : pnlPrice ? (
                               <>
-                                <div className="muted" style={{ fontSize: 10 }}>
-                                  legacy
-                                </div>
                                 <div>{fmtSignedUsd(pnlPrice.usd)}</div>
+                                <div className="muted" style={{ fontSize: 10 }}>price only</div>
                               </>
                             ) : (
                               '—'
@@ -744,7 +940,7 @@ export default function MarkSignalsPanel() {
         <div className="markDetailCard markEmptyDetail">
           Select a row to see the paper trade (SOL in → SOL out), net P/L in SOL, price chart, and lifecycle.
         </div>
-      ) : detailLoading ? (
+      ) : detailLoading && (detail == null || detail.cycle.id !== selectedId) ? (
         <div className="markDetailCard markEmptyDetail">Loading cycle detail…</div>
       ) : (
         <div className="markDetailCard">
@@ -890,7 +1086,7 @@ export default function MarkSignalsPanel() {
                 sMarkPriceUsd={chartSMarkPrice}
                 sMarkReason={chartSMarkReason}
                 bucketSecs={cycleBucketSecs(selectedCycle)}
-                live={selectedCycle.status === 'open'}
+                live={selectedCycle.status === 'open' && live}
                 liveRefreshSecs={TIER_A_POLL_MS / 1000}
               />
             )}

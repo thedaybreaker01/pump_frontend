@@ -55,6 +55,8 @@ p {
 }
 
 .sidebar {
+  display: flex;
+  flex-direction: column;
   padding: 18px;
   border-right: 1px solid var(--border);
   background: rgba(0, 0, 0, 0.18);
@@ -95,6 +97,10 @@ p {
 }
 
 .navItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   color: var(--text);
   padding: 10px 12px;
   border-radius: 10px;
@@ -113,6 +119,19 @@ p {
 .navItem.active {
   background: rgba(168, 85, 247, 0.15);
   border-color: rgba(168, 85, 247, 0.35);
+}
+
+.navBadge {
+  flex-shrink: 0;
+  min-width: 18px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.4;
+  text-align: center;
+  background: #34d399;
+  color: #052e1a;
 }
 
 .content {
@@ -152,6 +171,12 @@ p {
   background: rgba(41, 98, 255, 0.2);
   color: #7eb0ff;
   border: 1px solid rgba(41, 98, 255, 0.45);
+}
+
+.pillDexLost {
+  background: rgba(251, 191, 36, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(251, 191, 36, 0.45);
 }
 
 .pillLive {
@@ -800,6 +825,125 @@ p {
 
 .btnBuySm:hover {
   background: rgba(167, 139, 250, 0.22);
+}
+
+.btnSellSm {
+  border: 1px solid rgba(248, 113, 113, 0.5);
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  background: rgba(248, 113, 113, 0.14);
+  color: #fecaca;
+}
+
+.btnSellSm:hover:not(:disabled) {
+  background: rgba(248, 113, 113, 0.26);
+}
+
+.btnSellSm:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.sMarkModeToggle {
+  margin-top: auto;
+  padding: 12px 14px 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.sMarkModeToggleHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.sMarkModeToggleTitle {
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.sMarkModePill {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+
+.sMarkModePillAuto {
+  background: rgba(96, 165, 250, 0.18);
+  color: #93c5fd;
+}
+
+.sMarkModePillManual {
+  background: rgba(248, 113, 113, 0.18);
+  color: #fca5a5;
+}
+
+.sMarkModeSeg {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.sMarkModeSegBtn {
+  flex: 1;
+  border: none;
+  border-radius: 8px;
+  padding: 7px 8px;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.sMarkModeSegBtn:hover:not(:disabled) {
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.sMarkModeSegBtn.active {
+  background: rgba(167, 139, 250, 0.28);
+  color: #f3e8ff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+}
+
+.sMarkModeSegBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.sMarkModeHint {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.sMarkModeErr {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #fca5a5;
+}
+
+.aFocusMissingBanner {
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  background: rgba(251, 191, 36, 0.1);
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 /* Sell history: compact range picker */
@@ -1487,4 +1631,281 @@ p {
   font-weight: 300;
   color: var(--muted);
   padding: 0 4px;
+}
+
+.markLiveToggle input {
+  accent-color: var(--accent, #a78bfa);
+}
+
+.markLivePulse {
+  color: var(--accent, #a78bfa);
+}
+
+.markLiveFeed {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.markLiveFeedTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.markLiveBadge {
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(34, 197, 94, 0.2);
+  color: #34d399;
+  letter-spacing: 0.08em;
+}
+
+.markLiveFeedList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.markLiveFeedItem {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto;
+  gap: 8px;
+  align-items: baseline;
+  width: 100%;
+  text-align: left;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.markLiveFeedItem:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.markLiveFeedTag {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 2px 5px;
+  border-radius: 4px;
+}
+
+.markLiveFeedTag--buy {
+  background: rgba(96, 165, 250, 0.2);
+  color: #60a5fa;
+}
+
+.markLiveFeedTag--sell {
+  background: rgba(168, 85, 247, 0.2);
+  color: #a78bfa;
+}
+
+.markLiveFeedTime {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.markLiveFeedText {
+  font-size: 12px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.markLiveFeedPnl {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* A-token promotion toasts (global) */
+.aPromoteToastStack {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: min(420px, calc(100vw - 32px));
+  pointer-events: none;
+}
+
+.aPromoteToast {
+  pointer-events: auto;
+  display: flex;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(52, 211, 153, 0.45);
+  background: rgb(18, 24, 22);
+  box-shadow:
+    0 12px 40px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(255, 255, 255, 0.04);
+  animation: aPromoteSlideIn 0.35s ease-out;
+}
+
+@keyframes aPromoteSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.aPromoteToastAccent {
+  width: 5px;
+  flex-shrink: 0;
+  background: linear-gradient(180deg, #34d399, #22d3ee);
+}
+
+.aPromoteToastBody {
+  flex: 1;
+  padding: 12px 14px;
+  min-width: 0;
+}
+
+.aPromoteToastHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.aPromoteToastBadge {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: rgba(52, 211, 153, 0.25);
+  color: #34d399;
+}
+
+.aPromoteToastTitle {
+  flex: 1;
+  font-weight: 700;
+  font-size: 15px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aPromoteToastClose {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.aPromoteToastClose:hover {
+  color: var(--text);
+}
+
+.aPromoteToastSub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+.aPromoteToastMint {
+  font-size: 10px;
+  margin-bottom: 8px;
+}
+
+.aPromoteToastActions {
+  display: flex;
+  gap: 8px;
+}
+
+.aPromoteToastBtn {
+  font: inherit;
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  cursor: pointer;
+}
+
+.aPromoteToastBtn--primary {
+  border-color: rgba(52, 211, 153, 0.5);
+  background: rgba(52, 211, 153, 0.15);
+  color: #6ee7b7;
+  font-weight: 600;
+}
+
+.aPromoteToastBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.aPromoteBanner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(52, 211, 153, 0.4);
+  background: rgba(52, 211, 153, 0.1);
+  font-size: 14px;
+  font-weight: 500;
+  animation: aPromoteSlideIn 0.3s ease-out;
+}
+
+.aPromoteBannerBadge {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #34d399;
+  color: #052e1a;
+}
+
+tr.tierRowNew {
+  background: rgba(52, 211, 153, 0.12) !important;
+  box-shadow: inset 3px 0 0 #34d399;
+  animation: tierRowPulse 1.2s ease-in-out 3;
+}
+
+@keyframes tierRowPulse {
+  0%,
+  100% {
+    background: rgba(52, 211, 153, 0.12);
+  }
+  50% {
+    background: rgba(52, 211, 153, 0.22);
+  }
 }

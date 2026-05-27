@@ -11,6 +11,9 @@ export const CHART_RANGE_OPTIONS: { key: ChartRangeKey; label: string }[] = [
 
 /** A-tier list + chart: 1s poll / 1s OHLC (matches `a_token_price_interval_secs`). */
 export const TIER_A_POLL_MS = 1000
+
+/** Paper mark history: poll + SSE fallback (matches A-tier price cadence). */
+export const MARK_POLL_MS = 1000
 export const TIER_A_CHART_BUCKET_SECS = 1 as const
 
 /** L-tier: 2s poll / 5s OHLC. */
