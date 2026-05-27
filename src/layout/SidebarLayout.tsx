@@ -1,11 +1,17 @@
-import type { ReactNode } from 'react'
+import type { ReactNode } from 'react';
 
-export type NavKey = 'tokens' | 'watchlist' | 'positions' | 'sell_history'
+export type NavKey =
+  | 'tokens'
+  | 'watchlist'
+  | 'positions'
+  | 'sell_history'
+  | 'a_tokens'
+  | 'l_tokens';
 
 export default function SidebarLayout(props: {
-  active: NavKey
-  onNavigate: (to: NavKey) => void
-  children: ReactNode
+  active: NavKey;
+  onNavigate: (to: NavKey) => void;
+  children: ReactNode;
 }) {
   return (
     <div className="shell">
@@ -45,15 +51,26 @@ export default function SidebarLayout(props: {
             className={`navItem ${props.active === 'sell_history' ? 'active' : ''}`}
             onClick={() => props.onNavigate('sell_history')}
           >
-            Sell history
+            Buy / Sell
+          </button>
+          <button
+            type="button"
+            className={`navItem ${props.active === 'a_tokens' ? 'active' : ''}`}
+            onClick={() => props.onNavigate('a_tokens')}
+          >
+            A_Tokens
+          </button>
+          <button
+            type="button"
+            className={`navItem ${props.active === 'l_tokens' ? 'active' : ''}`}
+            onClick={() => props.onNavigate('l_tokens')}
+          >
+            L_Tokens
           </button>
         </nav>
       </aside>
 
-      <main className="content">
-        {props.children}
-      </main>
+      <main className="content">{props.children}</main>
     </div>
-  )
+  );
 }
-

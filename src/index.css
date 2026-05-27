@@ -148,6 +148,21 @@ p {
   font-size: 12px;
 }
 
+.pillDex {
+  background: rgba(41, 98, 255, 0.2);
+  color: #7eb0ff;
+  border: 1px solid rgba(41, 98, 255, 0.45);
+}
+
+.pillLive {
+  border-color: rgba(38, 166, 154, 0.55);
+  background: rgba(38, 166, 154, 0.18);
+  color: rgb(129, 212, 196);
+  font-weight: 650;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
 /* Token modal: open jup.ag token page */
 .jupAgTokenLink {
   display: inline-flex;
@@ -522,14 +537,117 @@ p {
   word-break: break-word;
 }
 
+.tvChartPanel {
+  background: #0c0e14;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.tvChartPanelFast {
+  border-color: rgba(38, 166, 154, 0.22);
+}
+
+.tvChartHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px 16px;
+  padding: 10px 14px 6px;
+  border-bottom: 1px solid #1e222d;
+}
+
+.tvChartHeadLeft {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.tvChartBarBadge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 3px 7px;
+  border-radius: 4px;
+  background: rgba(38, 166, 154, 0.18);
+  color: #5eead4;
+  border: 1px solid rgba(38, 166, 154, 0.35);
+}
+
+.tvChartHeadPrice {
+  font-size: 22px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+  color: #f2f4f8;
+}
+
+.tvChartPanelFast .tvChartHeadPrice {
+  font-size: 24px;
+}
+
+.tvChartChg {
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.tvChartChg.pos {
+  color: #26a69a;
+}
+
+.tvChartChg.neg {
+  color: #ef5350;
+}
+
+.tvChartHeadRight {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tvOhlcItem {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.tvOhlcK {
+  color: #787b86;
+  font-weight: 650;
+  font-size: 10px;
+}
+
+.tvOhlcV {
+  color: #d1d4dc;
+}
+
+.tvChartHeadTime {
+  color: #787b86;
+  margin-left: 4px;
+}
+
+.tvChartMeta {
+  font-size: 11px;
+  padding: 0 14px 6px;
+}
+
 .tvChartWrap {
   position: relative;
-  padding: 4px 0 10px;
+  padding: 0 0 8px;
 }
 
 .tvChartWrapCompact {
   padding: 4px 12px 12px;
+  width: 100%;
   max-width: 100%;
+  min-width: 320px;
   box-sizing: border-box;
 }
 
@@ -743,30 +861,27 @@ p {
 /* Tokens page: Jupiter metadata thumbs + insight tables */
 .tokensThreeCellGrid {
   display: grid;
-  grid-template-columns: minmax(620px, 2fr) minmax(360px, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
-  align-items: start;
+  align-items: stretch;
 }
 
 .tokensInsightsColumn {
-  min-width: 0;
+  display: contents;
 }
 
 .tokenInsightsGrid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 12px;
-  margin-bottom: 0;
+  display: contents;
 }
 
 @media (max-width: 1280px) {
   .tokensThreeCellGrid {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 960px) {
-  .tokenInsightsGrid {
+  .tokensThreeCellGrid {
     grid-template-columns: minmax(0, 1fr);
   }
 }
@@ -774,6 +889,11 @@ p {
 .tokenInsightsCard {
   min-width: 0;
   overflow: hidden;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 128px);
+  min-height: 420px;
 }
 
 .tokenInsightsCard .moversStripSub {
@@ -783,35 +903,39 @@ p {
 }
 
 /* Insight tables must NOT inherit global `.table { min-width: 1120px }` or they overflow narrow cards. */
-.tokenInsightsGrid .tokenInsightsTableWrap {
-  overflow: visible;
+.tokensThreeCellGrid .tokenInsightsTableWrap,
+.tokensNewTableWrap {
+  flex: 1 1 auto;
+  margin: 0 -12px -12px;
+  min-height: 0;
+  overflow: auto;
 }
 
-.tokenInsightsGrid .table.tableInsights {
+.tokensThreeCellGrid .table.tableInsights {
   min-width: 0;
   width: 100%;
   table-layout: fixed;
 }
 
-.tokenInsightsGrid .table.tableInsights th,
-.tokenInsightsGrid .table.tableInsights td {
+.tokensThreeCellGrid .table.tableInsights th,
+.tokensThreeCellGrid .table.tableInsights td {
   padding: 5px 8px;
   font-size: 12px;
   vertical-align: middle;
 }
 
-.tokenInsightsGrid .table.tableInsights th {
+.tokensThreeCellGrid .table.tableInsights th {
   padding-top: 7px;
   padding-bottom: 7px;
 }
 
-.tokenInsightsGrid .insightsThumbCell {
+.tokensThreeCellGrid .insightsThumbCell {
   width: 30px;
   padding-left: 10px;
   padding-right: 2px;
 }
 
-.tokenInsightsGrid .insightsSymCell {
+.tokensThreeCellGrid .insightsSymCell {
   width: 52px;
   max-width: 52px;
   overflow: hidden;
@@ -821,11 +945,11 @@ p {
   color: var(--muted);
 }
 
-.tokenInsightsGrid .insightsNameCell.tableTokenName {
+.tokensThreeCellGrid .insightsNameCell.tableTokenName {
   max-width: none;
 }
 
-.tokenInsightsGrid .tokenThumb {
+.tokensThreeCellGrid .tokenThumb {
   width: 22px;
   height: 22px;
   border-radius: 5px;
@@ -834,29 +958,25 @@ p {
 .tokensNewCell {
   min-width: 0;
   overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  max-height: calc(100vh - 128px);
 }
 
-.tokensNewCellHeader {
+.tokensNewTop {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   gap: 12px;
-  padding: 12px 12px 10px;
-  border-bottom: 1px solid var(--border);
+  margin-bottom: 8px;
 }
 
-.tokensNewCellHeader .moversStripTitle {
+.tokensNewTop .moversStripTitle {
   margin-bottom: 5px;
 }
 
 .tokensNewToolbar {
-  border-bottom: 1px solid var(--border);
-  border-radius: 0;
-  box-shadow: none;
-  padding: 10px 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
 .tokensNewSortLabel {
@@ -868,17 +988,17 @@ p {
   flex-basis: 100%;
   max-width: none;
   min-width: 0;
-  padding: 8px 10px;
-  font-size: 13px;
+  border-radius: 8px;
+  padding: 7px 9px;
+  font-size: 12px;
 }
 
 .tokensNewTableWrap {
-  flex: 1 1 auto;
-  min-height: 420px;
+  min-height: 0;
 }
 
 .tokensNewTable {
-  min-width: 660px;
+  min-width: 0;
 }
 
 .tokensNewTable th:nth-child(6),
@@ -903,7 +1023,7 @@ p {
 }
 
 @media (max-width: 1280px) {
-  .tokensNewCell {
+  .tokenInsightsCard {
     max-height: none;
   }
 }
@@ -930,4 +1050,441 @@ p {
 
 .tabular {
   font-variant-numeric: tabular-nums;
+}
+
+/* Buy/Sell — A_mark / S_mark validation */
+.markPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.markIntro {
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0;
+  color: var(--muted);
+}
+
+.markToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.markSummaryRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.markPnlTotalPill {
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.markTableCard {
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+}
+
+.markTableCard .tableWrap {
+  max-height: min(42vh, 420px);
+  overflow: auto;
+}
+
+.markTableCard .watchTable thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: rgb(22, 26, 34);
+  box-shadow: 0 1px 0 var(--border);
+}
+
+.markTableCard .watchTable th,
+.markTableCard .watchTable td {
+  padding: 10px 12px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.markTableCard .watchTable tr.markRowSelected {
+  background: rgba(41, 98, 255, 0.14);
+}
+
+.markTableCard .watchTable tr.markRowClickable {
+  cursor: pointer;
+}
+
+.markTableCard .watchTable tr.markRowClickable:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.markReasonPill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.markDetailCard {
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.03) 0%, rgba(0, 0, 0, 0.15) 100%);
+  overflow: hidden;
+}
+
+.markDetailHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 20px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.markDetailTitle {
+  min-width: 0;
+  flex: 1 1 200px;
+}
+
+.markDetailTitle h3 {
+  margin: 0 0 4px;
+  font-size: 17px;
+  font-weight: 650;
+}
+
+.markDetailMint {
+  font-size: 12px;
+  color: var(--muted);
+  word-break: break-all;
+  font-family: ui-monospace, monospace;
+}
+
+.markPnlHero {
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.markPnlHeroLabel {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.markPnlHeroValue {
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.markPnlHeroSub {
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 2px;
+}
+
+.markStatGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.markStatCard {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.markStatCard .markStatLabel {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.markStatCard .markStatValue {
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  word-break: break-word;
+}
+
+.markChartBlock {
+  padding: 12px 14px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.markChartBlockTitle {
+  font-size: 12px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+.markDetailTabs {
+  display: flex;
+  gap: 0;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.markDetailTab {
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  font: inherit;
+}
+
+.markDetailTab:hover {
+  color: var(--text);
+}
+
+.markDetailTab.active {
+  color: var(--text);
+  border-bottom-color: rgba(168, 85, 247, 0.85);
+}
+
+.markDetailTabBody {
+  padding: 12px 14px 16px;
+  max-height: min(36vh, 320px);
+  overflow: auto;
+}
+
+.markSnapshotTable th,
+.markSnapshotTable td {
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.markLogItem {
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.markLogItem:last-child {
+  border-bottom: none;
+}
+
+.markLogTime {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+
+.markLogType {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.markLogDetail {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.75);
+  line-height: 1.45;
+}
+
+.markEmptyDetail {
+  padding: 48px 24px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+/* Paper SOL P/L dashboard */
+.markSolDashboard {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.markSolDashCard {
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.28);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.markSolDashCard--hero {
+  border-color: rgba(168, 85, 247, 0.35);
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.12) 0%, rgba(0, 0, 0, 0.35) 100%);
+}
+
+.markSolDashCard--hero.pos {
+  border-color: rgba(34, 197, 94, 0.4);
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.1) 0%, rgba(0, 0, 0, 0.35) 100%);
+}
+
+.markSolDashCard--hero.neg {
+  border-color: rgba(239, 68, 68, 0.4);
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.1) 0%, rgba(0, 0, 0, 0.35) 100%);
+}
+
+.markSolDashCard--muted {
+  opacity: 0.85;
+}
+
+.markSolDashLabel {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+}
+
+.markSolDashValue {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.markSolDashCard--hero .markSolDashValue {
+  font-size: 26px;
+}
+
+.markSolDashMeta {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.markSolChartCard {
+  padding: 12px 14px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.markSolChartTitle {
+  font-size: 11px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.markSolChartWrap {
+  width: 100%;
+  min-height: 160px;
+}
+
+.markSolCell {
+  line-height: 1.35;
+}
+
+.markSolCellPrimary {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.markSolCellSub {
+  font-size: 10px;
+  margin-top: 2px;
+}
+
+.markOutcomeBadge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.markOutcomeWin {
+  background: rgba(34, 197, 94, 0.18);
+  color: var(--pos);
+  border: 1px solid rgba(34, 197, 94, 0.35);
+}
+
+.markOutcomeLoss {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--neg);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
+.markOutcomeFlat {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.markSolFlow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(168, 85, 247, 0.06);
+}
+
+.markSolFlowStep {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 100px;
+}
+
+.markSolFlowStep--pnl .markSolFlowAmount {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.markSolFlowTag {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.markSolFlowAmount {
+  font-size: 17px;
+  font-weight: 650;
+}
+
+.markSolFlowSub {
+  font-size: 11px;
+}
+
+.markSolFlowArrow {
+  font-size: 20px;
+  font-weight: 300;
+  color: var(--muted);
+  padding: 0 4px;
 }

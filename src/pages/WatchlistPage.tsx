@@ -1,31 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { fetchTokenPrices, fetchTokensBatch, type PricePointDto, type TokenDto } from '../lib/api'
+import { fetchTokenCandles, fetchTokensBatch, type CandleDto, type TokenDto } from '../lib/api'
 import { readWatchlist, toggleWatchMint } from '../lib/watchlist'
 import BuyTokenModal from '../components/BuyTokenModal'
-import PriceChart from '../components/PriceChart'
-
-type ChartRangeKey = '1h' | '6h' | '24h' | '7d' | '30d' | 'all'
-
-const CHART_RANGE_OPTIONS: { key: ChartRangeKey; label: string }[] = [
-  { key: '1h', label: '1h' },
-  { key: '6h', label: '6h' },
-  { key: '24h', label: '24h' },
-  { key: '7d', label: '1 week' },
-  { key: '30d', label: '1 month' },
-  { key: 'all', label: 'All' },
-]
-
-function fromIsoForRange(key: ChartRangeKey): string | null {
-  if (key === 'all') return null
-  const ms: Record<Exclude<ChartRangeKey, 'all'>, number> = {
-    '1h': 60 * 60 * 1000,
-    '6h': 6 * 60 * 60 * 1000,
-    '24h': 24 * 60 * 60 * 1000,
-    '7d': 7 * 24 * 60 * 60 * 1000,
-    '30d': 30 * 24 * 60 * 60 * 1000,
-  }
-  return new Date(Date.now() - ms[key]).toISOString()
-}
+import TokenCandleChart from '../components/TokenCandleChart'
+import { CHART_RANGE_OPTIONS, rangeWindowMs, type ChartRangeKey } from '../lib/chartRange'
 
 function fmtUsd(v: number | null) {
   if (v == null || Number.isNaN(v)) return '—'
@@ -52,8 +30,8 @@ export default function WatchlistPage() {
   const [selected, setSelected] = useState<TokenDto | null>(null)
   const [buyFor, setBuyFor] = useState<TokenDto | null>(null)
   const [priceRange, setPriceRange] = useState<ChartRangeKey>('24h')
-  const [prices, setPrices] = useState<PricePointDto[] | null>(null)
-  const [pricesError, setPricesError] = useState<string | null>(null)
+  const [candles, setCandles] = useState<CandleDto[] | null>(null)
+  const [candlesError, setCandlesError] = useState<string | null>(null)
 
   useEffect(() => {
     if (watchMints.length === 0) {
@@ -99,8 +77,8 @@ export default function WatchlistPage() {
 
   const closeTokenModal = useCallback(() => {
     setSelected(null)
-    setPrices(null)
-    setPricesError(null)
+    setCandles(null)
+    setCandlesError(null)
   }, [])
 
   const closeBuyModal = useCallback(() => {
@@ -113,17 +91,17 @@ export default function WatchlistPage() {
 
     let cancelled = false
     ;(async () => {
-      setPrices(null)
-      setPricesError(null)
+      setCandles(null)
+      setCandlesError(null)
       try {
-        const fromIso = fromIsoForRange(priceRange)
-        const pts = await fetchTokenPrices(mint, {
+        const { fromIso } = rangeWindowMs(priceRange)
+        const payload = await fetchTokenCandles(mint, {
           limit: 2000,
           fromIso: fromIso ?? undefined,
         })
-        if (!cancelled) setPrices(pts)
+        if (!cancelled) setCandles(payload.candles)
       } catch (e) {
-        if (!cancelled) setPricesError(e instanceof Error ? e.message : 'Failed to load prices')
+        if (!cancelled) setCandlesError(e instanceof Error ? e.message : 'Failed to load chart')
       }
     })()
     return () => {
@@ -205,7 +183,6 @@ export default function WatchlistPage() {
               ) : (
                 rows.map((t) => {
                   const cls = t.change == null ? 'muted' : t.change >= 0 ? 'pos' : 'neg'
-                  const dead = Boolean(t.dead_token)
                   return (
                     <tr
                       key={`w-${t.mint}`}
@@ -227,15 +204,9 @@ export default function WatchlistPage() {
                         {t.name?.trim() || '—'}
                       </td>
                       <td>
-                        {dead ? (
-                          <span className="pill" style={{ fontSize: 11 }}>
-                            Dead
-                          </span>
-                        ) : (
-                          <span className="muted" style={{ fontSize: 12 }}>
-                            Active
-                          </span>
-                        )}
+                        <span className="muted" style={{ fontSize: 12 }}>
+                          Active
+                        </span>
                       </td>
                       <td style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtUsd(t.first_price_usd)}</td>
                       <td style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtUsd(t.price_usd)}</td>
@@ -277,13 +248,6 @@ export default function WatchlistPage() {
                   <div className="muted monoEllipsis" title={selected.mint}>
                     {selected.mint}
                   </div>
-                  {selected.dead_token ? (
-                    <div style={{ marginTop: 8 }}>
-                      <span className="pill" style={{ fontSize: 11 }}>
-                        Dead — no live price updates
-                      </span>
-                    </div>
-                  ) : null}
                 </div>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
                   <button
@@ -306,7 +270,10 @@ export default function WatchlistPage() {
 
             <div className="chartToolbar">
               <div className="muted" style={{ fontSize: 13 }}>
-                Price history (cron samples)
+                Price history (1m candles)
+                {candles && candles.length > 0 ? (
+                  <span className="mono"> · {candles.length} bars</span>
+                ) : null}
               </div>
               <div className="rangeBtns" role="group" aria-label="Chart time range">
                 {CHART_RANGE_OPTIONS.map(({ key, label }) => (
@@ -322,13 +289,13 @@ export default function WatchlistPage() {
               </div>
             </div>
 
-            {pricesError ? (
+            {candlesError ? (
               <div className="errorBox" style={{ margin: 14 }}>
                 <div className="errorTitle">Failed to load price history</div>
-                <div className="errorMsg">{pricesError}</div>
+                <div className="errorMsg">{candlesError}</div>
               </div>
-            ) : prices ? (
-              <PriceChart points={prices} compact />
+            ) : candles ? (
+              <TokenCandleChart candles={candles} compact />
             ) : (
               <div className="muted" style={{ padding: 14 }}>
                 Loading price history…

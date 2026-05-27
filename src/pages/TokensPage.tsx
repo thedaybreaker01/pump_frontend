@@ -1,8 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { fetchTokenPrices, fetchTokens, postRegisterToken, type PricePointDto, type TokenDto, type TokenListSort } from '../lib/api'
+import {
+  fetchTokenCandles,
+  fetchTokens,
+  postRegisterToken,
+  subscribeTokenEvents,
+  type CandleDto,
+  type TokenDto,
+  type TokenListSort,
+} from '../lib/api'
 import { isMintWatched, readWatchlist, toggleWatchMint } from '../lib/watchlist'
 import BuyTokenModal from '../components/BuyTokenModal'
-import PriceChart from '../components/PriceChart'
+import TokenDetailModal from '../components/TokenDetailModal'
+import { rangeWindowMs, type ChartRangeKey } from '../lib/chartRange'
 
 const SORT_TABS: { key: TokenListSort; label: string; hint: string }[] = [
   { key: 'first_seen', label: 'Newest', hint: 'Latest mints first' },
@@ -10,29 +19,6 @@ const SORT_TABS: { key: TokenListSort; label: string; hint: string }[] = [
   { key: 'change_desc', label: 'Top +%', hint: 'Largest price gain vs first quote' },
   { key: 'change_asc', label: 'Top −%', hint: 'Largest price drop vs first quote' },
 ]
-
-export type ChartRangeKey = '1h' | '6h' | '24h' | '7d' | '30d' | 'all'
-
-const CHART_RANGE_OPTIONS: { key: ChartRangeKey; label: string }[] = [
-  { key: '1h', label: '1h' },
-  { key: '6h', label: '6h' },
-  { key: '24h', label: '24h' },
-  { key: '7d', label: '1 week' },
-  { key: '30d', label: '1 month' },
-  { key: 'all', label: 'All' },
-]
-
-function fromIsoForRange(key: ChartRangeKey): string | null {
-  if (key === 'all') return null
-  const ms: Record<Exclude<ChartRangeKey, 'all'>, number> = {
-    '1h': 60 * 60 * 1000,
-    '6h': 6 * 60 * 60 * 1000,
-    '24h': 24 * 60 * 60 * 1000,
-    '7d': 7 * 24 * 60 * 60 * 1000,
-    '30d': 30 * 24 * 60 * 60 * 1000,
-  }
-  return new Date(Date.now() - ms[key]).toISOString()
-}
 
 function fmtUsd(v: number | null) {
   if (v == null || Number.isNaN(v)) return '—'
@@ -64,13 +50,6 @@ function fmtListed(iso: string | null | undefined) {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return '—'
   return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
-
-function fmtDateTime(iso: string | null | undefined) {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return '—'
-  return d.toLocaleString()
 }
 
 /** Jupiter `mcap` (USD) compact label */
@@ -108,8 +87,8 @@ export default function TokensPage() {
   const [selected, setSelected] = useState<TokenDto | null>(null)
   const [buyFor, setBuyFor] = useState<TokenDto | null>(null)
   const [priceRange, setPriceRange] = useState<ChartRangeKey>('24h')
-  const [prices, setPrices] = useState<PricePointDto[] | null>(null)
-  const [pricesError, setPricesError] = useState<string | null>(null)
+  const [candles, setCandles] = useState<CandleDto[] | null>(null)
+  const [candlesError, setCandlesError] = useState<string | null>(null)
   const [searchDraft, setSearchDraft] = useState('')
   const [searchApplied, setSearchApplied] = useState('')
   const [addOpen, setAddOpen] = useState(false)
@@ -118,19 +97,23 @@ export default function TokensPage() {
   const [addBusy, setAddBusy] = useState(false)
   const [addErr, setAddErr] = useState<string | null>(null)
 
+  const loadTokens = useCallback(async () => {
+    const rows = await fetchTokens({
+      limit: 500,
+      offset: 0,
+      sort: sortMode,
+      search: searchApplied || undefined,
+    })
+    setTokens(rows)
+  }, [sortMode, searchApplied])
+
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       try {
         setLoading(true)
         setError(null)
-        const rows = await fetchTokens({
-          limit: 500,
-          offset: 0,
-          sort: sortMode,
-          search: searchApplied || undefined,
-        })
-        if (!cancelled) setTokens(rows)
+        await loadTokens()
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load')
       } finally {
@@ -140,7 +123,7 @@ export default function TokensPage() {
     return () => {
       cancelled = true
     }
-  }, [sortMode, tokensNonce, searchApplied])
+  }, [loadTokens, tokensNonce])
 
   useEffect(() => {
     const id = window.setTimeout(() => setSearchApplied(searchDraft.trim()), 280)
@@ -192,26 +175,52 @@ export default function TokensPage() {
   }, [loading, loadInsights])
 
   useEffect(() => {
+    let refreshTimer: number | undefined
+    const refreshFromEvent = () => {
+      if (refreshTimer != null) window.clearTimeout(refreshTimer)
+      refreshTimer = window.setTimeout(() => {
+        void loadTokens().catch((e) => {
+          setError(e instanceof Error ? e.message : 'Failed to load')
+        })
+        void loadInsights()
+      }, 250)
+    }
+
+    const unsubscribe = subscribeTokenEvents(refreshFromEvent)
+    return () => {
+      if (refreshTimer != null) window.clearTimeout(refreshTimer)
+      unsubscribe()
+    }
+  }, [loadTokens, loadInsights])
+
+  useEffect(() => {
     const mint = selected?.mint
     if (!mint) return undefined
 
     let cancelled = false
-    ;(async () => {
-      setPrices(null)
-      setPricesError(null)
+    const pull = async () => {
       try {
-        const fromIso = fromIsoForRange(priceRange)
-        const pts = await fetchTokenPrices(mint, {
+        const { fromIso } = rangeWindowMs(priceRange)
+        const payload = await fetchTokenCandles(mint, {
           limit: 2000,
           fromIso: fromIso ?? undefined,
         })
-        if (!cancelled) setPrices(pts)
+        if (!cancelled) {
+          setCandles(payload.candles)
+          setCandlesError(null)
+        }
       } catch (e) {
-        if (!cancelled) setPricesError(e instanceof Error ? e.message : 'Failed to load prices')
+        if (!cancelled) setCandlesError(e instanceof Error ? e.message : 'Failed to load chart')
       }
-    })()
+    }
+
+    setCandles(null)
+    setCandlesError(null)
+    void pull()
+    const id = window.setInterval(() => void pull(), 5000)
     return () => {
       cancelled = true
+      window.clearInterval(id)
     }
   }, [selected?.mint, priceRange])
 
@@ -236,8 +245,8 @@ export default function TokensPage() {
 
   const closeTokenModal = useCallback(() => {
     setSelected(null)
-    setPrices(null)
-    setPricesError(null)
+    setCandles(null)
+    setCandlesError(null)
   }, [])
 
   useEffect(() => {
@@ -451,8 +460,8 @@ export default function TokensPage() {
           </div>
         </div>
 
-        <div className="card tokensNewCell">
-          <div className="tokensNewCellHeader">
+        <div className="card tokenInsightsCard tokensNewCell">
+          <div className="tokensNewTop">
             <div>
               <div className="moversStripTitle">New</div>
               <p className="muted moversStripSub">Newest tracked tokens from Postgres.</p>
@@ -471,10 +480,7 @@ export default function TokensPage() {
             </button>
           </div>
 
-      <div className="sortToolbar tokensNewToolbar">
-          <div className="muted tokensNewSortLabel">
-            Sort
-          </div>
+          <div className="tokensNewToolbar">
           <div className="rangeBtns" role="tablist" aria-label="Sort tokens">
             {SORT_TABS.map(({ key, label, hint }) => (
               <button
@@ -492,7 +498,7 @@ export default function TokensPage() {
           </div>
         <input
           type="search"
-          className="formInput toolbarSearchInput tokensNewSearchInput"
+          className="formInput tokensNewSearchInput"
           placeholder="Search by name or mint…"
           value={searchDraft}
           onChange={(e) => setSearchDraft(e.target.value)}
@@ -501,7 +507,7 @@ export default function TokensPage() {
       </div>
 
           <div className="tableWrap tokensNewTableWrap">
-            <table className="table tokensNewTable">
+            <table className="table tableCompact tableInsights tokensNewTable">
             <thead>
               <tr>
                 <th style={{ width: 44 }} aria-label="Watch list" />
@@ -718,205 +724,16 @@ export default function TokensPage() {
       ) : null}
 
       {selected ? (
-        <div
-          className="modalBackdrop"
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) closeTokenModal()
-          }}
-          role="presentation"
-        >
-          <div
-            className="card modalPanel"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="token-modal-title"
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            <div style={{ padding: 14, borderBottom: '1px solid rgba(255,255,255,0.12)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
-                <div>
-                  <div id="token-modal-title" style={{ fontWeight: 650 }}>
-                    {selected.name || 'Token'}
-                  </div>
-                  <div className="muted monoEllipsis" title={selected.mint}>{selected.mint}</div>
-                </div>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
-                  <a
-                    href={`https://jup.ag/tokens/${encodeURIComponent(selected.mint)}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="jupAgTokenLink"
-                    title="Open token page on jup.ag"
-                    aria-label="Open token on Jupiter (jup.ag)"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <span className="jupAgTokenLinkIcon" aria-hidden>
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path
-                          d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                        <path
-                          d="M15 3h6v6"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                        <path
-                          d="M10 14L21 3"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
-                    </span>
-                  </a>
-                  <button
-                    type="button"
-                    className="btnPrimary"
-                    style={{ padding: '8px 14px', fontSize: 13 }}
-                    onClick={() => {
-                      setBuyFor(selected)
-                      closeTokenModal()
-                    }}
-                  >
-                    Buy
-                  </button>
-                  <button type="button" className="pill" onClick={closeTokenModal}>
-                    Close
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div className="tokenInfoPanel">
-              <div className="tokenInfoGrid">
-                <div className="tokenInfoItem">
-                  <div className="tokenInfoLabel">Symbol</div>
-                  <div className="tokenInfoValue">{selected.token_symbol?.trim() || '—'}</div>
-                </div>
-                <div className="tokenInfoItem">
-                  <div className="tokenInfoLabel">Verified</div>
-                  <div className="tokenInfoValue">
-                    {selected.jupiter_is_verified === true ? 'Yes' : selected.jupiter_is_verified === false ? 'No' : '—'}
-                  </div>
-                </div>
-                <div className="tokenInfoItem">
-                  <div className="tokenInfoLabel">Decimals</div>
-                  <div className="tokenInfoValue">
-                    {selected.token_decimals != null && Number.isFinite(selected.token_decimals)
-                      ? selected.token_decimals
-                      : '—'}
-                  </div>
-                </div>
-                <div className="tokenInfoItem">
-                  <div className="tokenInfoLabel">Jupiter Mcap</div>
-                  <div className="tokenInfoValue">{fmtMcap(selected.jupiter_mcap_usd)}</div>
-                </div>
-                <div className="tokenInfoItem">
-                  <div className="tokenInfoLabel">Organic score</div>
-                  <div className="tokenInfoValue">
-                    {selected.jupiter_organic_score != null && Number.isFinite(selected.jupiter_organic_score)
-                      ? selected.jupiter_organic_score.toFixed(2)
-                      : '—'}
-                  </div>
-                </div>
-                <div className="tokenInfoItem">
-                  <div className="tokenInfoLabel">24h (Jupiter)</div>
-                  <div
-                    className={`tokenInfoValue ${
-                      selected.stats_24h_price_change_pct == null || !Number.isFinite(selected.stats_24h_price_change_pct)
-                        ? 'muted'
-                        : selected.stats_24h_price_change_pct >= 0
-                          ? 'pos'
-                          : 'neg'
-                    }`}
-                  >
-                    {selected.stats_24h_price_change_pct != null && Number.isFinite(selected.stats_24h_price_change_pct)
-                      ? fmtPct(selected.stats_24h_price_change_pct)
-                      : '—'}
-                  </div>
-                </div>
-                <div className="tokenInfoItem">
-                  <div className="tokenInfoLabel">First USD</div>
-                  <div className="tokenInfoValue">{fmtUsd(selected.first_price_usd)}</div>
-                </div>
-                <div className="tokenInfoItem">
-                  <div className="tokenInfoLabel">Last USD</div>
-                  <div className="tokenInfoValue">{fmtUsd(selected.price_usd)}</div>
-                </div>
-                <div className="tokenInfoItem">
-                  <div className="tokenInfoLabel">Change vs first</div>
-                  <div
-                    className={`tokenInfoValue ${
-                      selected.price_change_pct == null || !Number.isFinite(selected.price_change_pct)
-                        ? 'muted'
-                        : selected.price_change_pct >= 0
-                          ? 'pos'
-                          : 'neg'
-                    }`}
-                  >
-                    {selected.price_change_pct != null && Number.isFinite(selected.price_change_pct)
-                      ? fmtPct(selected.price_change_pct)
-                      : fmtPct(pctChange(selected.first_price_usd, selected.price_usd))}
-                  </div>
-                </div>
-                <div className="tokenInfoItem">
-                  <div className="tokenInfoLabel">First seen</div>
-                  <div className="tokenInfoValue">{fmtDateTime(selected.first_seen)}</div>
-                </div>
-                <div className="tokenInfoItem">
-                  <div className="tokenInfoLabel">Last seen</div>
-                  <div className="tokenInfoValue">{fmtDateTime(selected.last_seen)}</div>
-                </div>
-                <div className="tokenInfoItem">
-                  <div className="tokenInfoLabel">Price updated</div>
-                  <div className="tokenInfoValue">{fmtDateTime(selected.price_updated_at)}</div>
-                </div>
-                <div className="tokenInfoItem tokenInfoItemWide">
-                  <div className="tokenInfoLabel">Icon URL</div>
-                  <div className="tokenInfoValue monoEllipsis" title={selected.token_icon_url || ''}>
-                    {selected.token_icon_url || '—'}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="chartToolbar">
-              <div className="muted" style={{ fontSize: 13 }}>
-                Price history (30 min samples)
-              </div>
-              <div className="rangeBtns" role="group" aria-label="Chart time range">
-                {CHART_RANGE_OPTIONS.map(({ key, label }) => (
-                  <button
-                    key={key}
-                    type="button"
-                    className={`rangeBtn${priceRange === key ? ' active' : ''}`}
-                    onClick={() => setPriceRange(key)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {pricesError ? (
-              <div className="errorBox" style={{ margin: 14 }}>
-                <div className="errorTitle">Failed to load price history</div>
-                <div className="errorMsg">{pricesError}</div>
-              </div>
-            ) : prices ? (
-              <PriceChart points={prices} compact />
-            ) : (
-              <div className="muted" style={{ padding: 14 }}>Loading price history…</div>
-            )}
-          </div>
-        </div>
+        <TokenDetailModal
+          token={selected}
+          onClose={closeTokenModal}
+          onBuy={setBuyFor}
+          priceRange={priceRange}
+          onPriceRangeChange={setPriceRange}
+          candles={candles}
+          candlesError={candlesError}
+          titleId="token-modal-title"
+        />
       ) : null}
     </div>
   )

@@ -76,8 +76,14 @@ function svgPointFromClient(svg: SVGSVGElement, cx: number, cy: number) {
   return { x, y }
 }
 
-export default function PriceChart(props: { points: PricePoint[]; compact?: boolean }) {
-  const { points, compact } = props
+export default function PriceChart(props: {
+  points: PricePoint[]
+  compact?: boolean
+  /** When set, X-axis spans this window (e.g. user picked 24h but token is newer). */
+  rangeStartMs?: number | null
+  rangeEndMs?: number | null
+}) {
+  const { points, compact, rangeStartMs, rangeEndMs } = props
   const areaGradId = useId().replace(/:/g, '')
   const svgRef = useRef<SVGSVGElement>(null)
 
@@ -114,8 +120,14 @@ export default function PriceChart(props: { points: PricePoint[]; compact?: bool
     }
 
     const vals = sorted.map((s) => s._v!)
-    const tMin = sorted[0]!._t
-    const tMax = sorted[sorted.length - 1]!._t
+    const dataTMin = sorted[0]!._t
+    const dataTMax = sorted[sorted.length - 1]!._t
+    const windowStart =
+      rangeStartMs != null && Number.isFinite(rangeStartMs) ? rangeStartMs : dataTMin
+    const windowEnd =
+      rangeEndMs != null && Number.isFinite(rangeEndMs) ? rangeEndMs : dataTMax
+    const tMin = Math.min(windowStart, dataTMin)
+    const tMax = Math.max(windowEnd, dataTMax, tMin + 60_000)
 
     let vMin = Math.min(...vals)
     let vMax = Math.max(...vals)
@@ -196,7 +208,7 @@ export default function PriceChart(props: { points: PricePoint[]; compact?: bool
       yForVal,
       lastPrice: formatUsd(last.val),
     }
-  }, [points])
+  }, [points, rangeStartMs, rangeEndMs])
 
   if ('empty' in layout && layout.empty) {
     return <div className="muted tvChartMuted">Not enough price points yet.</div>

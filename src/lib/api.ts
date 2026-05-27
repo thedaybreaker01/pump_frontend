@@ -10,17 +10,29 @@ export type TokenDto = {
   price_usd: number | null
   price_change_pct?: number | null
   price_updated_at: string | null
-  /** Backend stops pricing / hides from main list when true. */
-  dead_token?: boolean
-  dead_marked_at?: string | null
   /** Jupiter Tokens API v2 (filled when `jupiter_api_key` set + cron ran). */
   token_symbol?: string | null
   token_icon_url?: string | null
   token_decimals?: number | null
   jupiter_is_verified?: boolean | null
   jupiter_mcap_usd?: number | null
+  /** Jupiter Tokens API `liquidity` (USD). */
+  jupiter_liquidity_usd?: number | null
   jupiter_organic_score?: number | null
   stats_24h_price_change_pct?: number | null
+  /** Pump.fun live stream badge (from coin API, refreshed by token-monitor). */
+  is_pump_live?: boolean | null
+  /** Graduated to Raydium / DEX badge. */
+  is_dex?: boolean | null
+  pump_status_updated_at?: string | null
+  raydium_pool?: string | null
+  /** `a` | `l` when mint is on a tier list. */
+  tier?: 'a' | 'l' | null
+  /** When row moved from pump_tokens → a_tokens / l_tokens. */
+  promoted_at?: string | null
+  price_change_pct_at_promote?: number | null
+  mcap_usd_at_promote?: number | null
+  first_seen_at_promote?: string | null
 }
 
 /** GET /tokens?sort=... (see token-monitor `TokenListSort::parse`). */
@@ -37,6 +49,30 @@ export type PricePointDto = {
 }
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? ''
+
+export type TokenEventDto = {
+  mint?: string
+  op?: string
+  at?: string
+}
+
+export function subscribeTokenEvents(onChange: (event: TokenEventDto) => void, onError?: () => void): () => void {
+  const url = new URL(`${API_BASE}/tokens/events`, window.location.origin)
+  const source = new EventSource(url.toString())
+
+  source.addEventListener('token-change', (event) => {
+    try {
+      onChange(JSON.parse(event.data) as TokenEventDto)
+    } catch {
+      onChange({})
+    }
+  })
+  source.onerror = () => {
+    onError?.()
+  }
+
+  return () => source.close()
+}
 
 export async function fetchTokens(params?: {
   limit?: number
@@ -95,6 +131,124 @@ export async function fetchTokenPrices(
   const res = await fetch(url.toString())
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return (await res.json()) as PricePointDto[]
+}
+
+export type CandleDto = {
+  ts: string
+  open_usd: number
+  high_usd: number
+  low_usd: number
+  close_usd: number
+  samples: number
+}
+
+/** GET /tokens/:mint/candles — 1-minute OHLC from `token_prices`. */
+export async function fetchATokens(params?: {
+  limit?: number
+  offset?: number
+  search?: string
+}): Promise<TokenDto[]> {
+  const url = new URL(`${API_BASE}/a-tokens`, window.location.origin)
+  if (params?.limit != null) url.searchParams.set('limit', String(params.limit))
+  if (params?.offset != null) url.searchParams.set('offset', String(params.offset))
+  const q = params?.search?.trim()
+  if (q) url.searchParams.set('search', q)
+  const res = await fetch(url.toString())
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return (await res.json()) as TokenDto[]
+}
+
+export async function fetchLTokens(params?: {
+  limit?: number
+  offset?: number
+  search?: string
+}): Promise<TokenDto[]> {
+  const url = new URL(`${API_BASE}/l-tokens`, window.location.origin)
+  if (params?.limit != null) url.searchParams.set('limit', String(params.limit))
+  if (params?.offset != null) url.searchParams.set('offset', String(params.offset))
+  const q = params?.search?.trim()
+  if (q) url.searchParams.set('search', q)
+  const res = await fetch(url.toString())
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return (await res.json()) as TokenDto[]
+}
+
+export type CandlesPayload = {
+  candles: CandleDto[]
+  promoted_at?: string | null
+  promoted_price_usd?: number | null
+  tier?: 'a' | 'l' | null
+  s_mark_at?: string | null
+  s_mark_price_usd?: number | null
+  s_mark_reason?: string | null
+  mark_cycle_id?: number | null
+  mark_cycle_status?: string | null
+  consecutive_down_count?: number | null
+  s_mark_consecutive_downs?: number | null
+}
+
+export async function fetchTokenCandles(
+  mint: string,
+  params?: {
+    limit?: number
+    fromIso?: string | null
+    bucketSecs?: 1 | 5 | 10 | 60
+    markCycleId?: number
+  },
+): Promise<CandlesPayload> {
+  const url = new URL(`${API_BASE}/tokens/${mint}/candles`, window.location.origin)
+  if (params?.limit != null) url.searchParams.set('limit', String(params.limit))
+  if (params?.fromIso) url.searchParams.set('from', params.fromIso)
+  if (params?.bucketSecs != null) url.searchParams.set('bucket_secs', String(params.bucketSecs))
+  if (params?.markCycleId != null) url.searchParams.set('mark_cycle_id', String(params.markCycleId))
+
+  const res = await fetch(url.toString())
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const raw: unknown = await res.json()
+  if (Array.isArray(raw)) {
+    const candles = (raw as CandleDto[]).sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts))
+    return { candles }
+  }
+  const body = raw as CandlesPayload
+  const candles = (body.candles ?? []).sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts))
+  return {
+    candles,
+    promoted_at: body.promoted_at ?? null,
+    promoted_price_usd: body.promoted_price_usd ?? null,
+    tier: body.tier ?? null,
+    s_mark_at: body.s_mark_at ?? null,
+    s_mark_price_usd: body.s_mark_price_usd ?? null,
+    s_mark_reason: body.s_mark_reason ?? null,
+    mark_cycle_id: body.mark_cycle_id ?? null,
+    mark_cycle_status: body.mark_cycle_status ?? null,
+    consecutive_down_count: body.consecutive_down_count ?? null,
+    s_mark_consecutive_downs: body.s_mark_consecutive_downs ?? null,
+  }
+}
+
+/** Extend chart `from` so A/S mark markers are never clipped by the selected range. */
+export function chartFromIsoIncludingMarkEvents(
+  rangeFromIso: string | null | undefined,
+  ...eventIsos: (string | null | undefined)[]
+): string | undefined {
+  let fromMs = rangeFromIso ? Date.parse(rangeFromIso) : Number.NaN
+  const bufferMs = 15_000
+  for (const iso of eventIsos) {
+    const ms = iso ? Date.parse(iso) : Number.NaN
+    if (!Number.isFinite(ms)) continue
+    const need = ms - bufferMs
+    if (!Number.isFinite(fromMs) || need < fromMs) fromMs = need
+  }
+  if (!Number.isFinite(fromMs)) return undefined
+  return new Date(fromMs).toISOString()
+}
+
+/** @deprecated use chartFromIsoIncludingMarkEvents */
+export function chartFromIsoIncludingPromotion(
+  rangeFromIso: string | null | undefined,
+  promotedAt: string | null | undefined,
+): string | undefined {
+  return chartFromIsoIncludingMarkEvents(rangeFromIso, promotedAt)
 }
 
 export type TradePositionDto = {
@@ -229,3 +383,150 @@ export async function fetchSellHistoryBundle(params: { from: string; to: string 
   return (await res.json()) as SellHistoryBundleDto
 }
 
+/** A_mark / S_mark validation history (no execution). */
+export type MarkCycleDto = {
+  id: number
+  mint: string
+  cycle_no: number
+  token_name: string | null
+  a_mark_at: string
+  a_mark_reason: string
+  buy_price_usd: number
+  a_mark_mcap_usd: number | null
+  status: string
+  s_mark_at: string | null
+  s_mark_reason: string | null
+  sell_price_usd: number | null
+  s_mark_mcap_usd: number | null
+  consecutive_down_count: number
+  last_snapshot_price_usd: number | null
+  last_snapshot_at: string | null
+  closed_at: string | null
+  close_reason: string | null
+  profit_multiple: number | null
+  /** Sell − buy (USD) at S_mark (token price delta only). */
+  pnl_usd: number | null
+  /** Percent P/L vs buy @ A_mark. */
+  pnl_pct: number | null
+  /** Paper sim: SOL in at A_mark. */
+  buy_sol: number | null
+  /** Paper sim: SOL out at S_mark. */
+  sell_sol: number | null
+  /** Paper sim: sell_sol − buy_sol. */
+  pnl_sol: number | null
+  pnl_sol_pct: number | null
+}
+
+export type MarkSnapshotDto = {
+  id: number
+  fetched_at: string
+  price_usd: number
+  consecutive_down_count: number
+  fetch_seq: number
+}
+
+export type LifecycleLogDto = {
+  id: number
+  event_at: string
+  event_type: string
+  detail: Record<string, unknown>
+}
+
+export type MarkCycleDetailDto = {
+  cycle: MarkCycleDto
+  snapshots: MarkSnapshotDto[]
+  lifecycle: LifecycleLogDto[]
+}
+
+export type MarkPnlSummaryDto = {
+  total_pnl_usd: number
+  total_pnl_sol: number
+  wins: number
+  losses: number
+  breakeven: number
+  with_pnl: number
+  with_pnl_sol: number
+  total_s_marked: number
+}
+
+export type MarkSummaryDto = {
+  counts: {
+    total_cycles: number
+    s_marked: number
+    open: number
+    demoted_without_s_mark: number
+  }
+  /** All completed S_mark cycles in range (not limited to table page size). */
+  pnl?: MarkPnlSummaryDto | null
+}
+
+export async function fetchMarkCycles(params?: {
+  limit?: number
+  offset?: number
+  mint?: string
+  from?: string
+  to?: string
+  /** Default true: only open cycles for mints still on a_tokens. */
+  activeOnA?: boolean
+  /** `s_marked` | `demoted` — list completed S_mark rows or demoted-without-S_mark. */
+  history?: 's_marked' | 'demoted'
+}): Promise<MarkCycleDto[]> {
+  const url = new URL(`${API_BASE}/signals/mark-cycles`, window.location.origin)
+  if (params?.limit != null) url.searchParams.set('limit', String(params.limit))
+  if (params?.offset != null) url.searchParams.set('offset', String(params.offset))
+  if (params?.mint) url.searchParams.set('mint', params.mint)
+  if (params?.from) url.searchParams.set('from', params.from)
+  if (params?.to) url.searchParams.set('to', params.to)
+  if (params?.history) {
+    url.searchParams.set('history', params.history)
+  } else {
+    const activeOnA = params?.activeOnA ?? true
+    url.searchParams.set('active_on_a', activeOnA ? 'true' : 'false')
+  }
+  const res = await fetch(url.toString())
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return (await res.json()) as MarkCycleDto[]
+}
+
+/** Load every cycle in range (paginated server-side). */
+export async function fetchAllMarkCycles(
+  params: Omit<NonNullable<Parameters<typeof fetchMarkCycles>[0]>, 'limit' | 'offset'>,
+): Promise<MarkCycleDto[]> {
+  const pageSize = 500
+  const out: MarkCycleDto[] = []
+  let offset = 0
+  for (;;) {
+    const batch = await fetchMarkCycles({ ...params, limit: pageSize, offset })
+    out.push(...batch)
+    if (batch.length < pageSize) break
+    offset += pageSize
+  }
+  return out
+}
+
+export async function fetchMarkCycleDetail(id: number): Promise<MarkCycleDetailDto> {
+  const url = new URL(`${API_BASE}/signals/mark-cycles/${id}`, window.location.origin)
+  const res = await fetch(url.toString())
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return (await res.json()) as MarkCycleDetailDto
+}
+
+export async function fetchMarkSummary(params?: {
+  from?: string
+  to?: string
+  activeOnA?: boolean
+  history?: 's_marked' | 'demoted'
+}): Promise<MarkSummaryDto> {
+  const url = new URL(`${API_BASE}/signals/mark-summary`, window.location.origin)
+  if (params?.from) url.searchParams.set('from', params.from)
+  if (params?.to) url.searchParams.set('to', params.to)
+  if (params?.history) {
+    url.searchParams.set('history', params.history)
+  } else {
+    const activeOnA = params?.activeOnA ?? true
+    url.searchParams.set('active_on_a', activeOnA ? 'true' : 'false')
+  }
+  const res = await fetch(url.toString())
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return (await res.json()) as MarkSummaryDto
+}

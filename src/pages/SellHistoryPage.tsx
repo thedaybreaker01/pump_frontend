@@ -12,6 +12,9 @@ import {
   YAxis,
 } from 'recharts'
 import { fetchSellHistoryBundle, type SellHistoryBundleDto, type SellHistoryRowDto } from '../lib/api'
+import MarkSignalsPanel from './MarkSignalsPanel'
+
+type PageTab = 'trades' | 'marks'
 
 type Preset = 'day' | 'week' | 'month'
 
@@ -55,6 +58,7 @@ function sellOutcomeLabel(r: SellHistoryRowDto): { text: string; className: stri
 const PIE_COLORS = ['#a78bfa', '#34d399', '#fbbf24', '#f87171', '#60a5fa', '#f472b6', '#94a3b8', '#22d3ee']
 
 export default function SellHistoryPage() {
+  const [pageTab, setPageTab] = useState<PageTab>('marks')
   const [preset, setPreset] = useState<Preset>('month')
   const [fromIso, setFromIso] = useState(() => presetRange('month').from.slice(0, 16))
   const [toIso, setToIso] = useState(() => presetRange('month').to.slice(0, 16))
@@ -134,13 +138,35 @@ export default function SellHistoryPage() {
     <div className="page">
       <div className="pageHeader">
         <div>
-          <h1>Sell history</h1>
+          <h1>Buy / Sell</h1>
           <p className="muted">
-            Realized P/L uses (sell price − buy price) × amount sold when buy price was recorded; charts and totals match that rule.
+            <strong>A/S marks</strong> — paper trades in SOL (0.05 SOL per A_mark, P/L at S_mark; no wallet).{' '}
+            <strong>Trade history</strong> — real on-chain positions when you use Buy/Sell on tokens.
           </p>
         </div>
       </div>
 
+      <div className="rangeBtns" style={{ marginBottom: 14 }} role="tablist" aria-label="Buy sell sections">
+        <button
+          type="button"
+          className={`rangeBtn${pageTab === 'marks' ? ' active' : ''}`}
+          onClick={() => setPageTab('marks')}
+        >
+          Paper P/L (SOL)
+        </button>
+        <button
+          type="button"
+          className={`rangeBtn${pageTab === 'trades' ? ' active' : ''}`}
+          onClick={() => setPageTab('trades')}
+        >
+          Trade history
+        </button>
+      </div>
+
+      {pageTab === 'marks' ? <MarkSignalsPanel /> : null}
+
+      {pageTab === 'trades' ? (
+        <>
       <div className="card sellHistoryRangeBar">
         <div className="sellHistoryRangeInner">
           <div className="rangeBtns sellHistoryPresetBtns" role="tablist" aria-label="Quick date range">
@@ -353,6 +379,8 @@ export default function SellHistoryPage() {
               </table>
             </div>
           </div>
+        </>
+      ) : null}
         </>
       ) : null}
     </div>
