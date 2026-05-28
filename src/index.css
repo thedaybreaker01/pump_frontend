@@ -847,8 +847,45 @@ p {
   cursor: not-allowed;
 }
 
-.sMarkModeToggle {
+.walletBalance {
   margin-top: auto;
+  padding: 12px 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.walletBalanceLabel {
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.55);
+  margin-bottom: 6px;
+}
+
+.walletBalanceSol {
+  font-size: 18px;
+  font-weight: 700;
+  color: #e9d5ff;
+}
+
+.walletBalanceMeta {
+  margin-top: 4px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  font-family: ui-monospace, monospace;
+}
+
+.walletBalanceMuted {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.45);
+  line-height: 1.35;
+}
+
+.walletBalanceLive {
+  color: #86efac;
+}
+
+.sMarkModeToggle {
   padding: 12px 14px 16px;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
@@ -1559,6 +1596,11 @@ p {
 .markSolCellSub {
   font-size: 10px;
   margin-top: 2px;
+}
+
+.markTimeCell {
+  line-height: 1.3;
+  white-space: nowrap;
 }
 
 .markOutcomeBadge {

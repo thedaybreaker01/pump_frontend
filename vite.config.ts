@@ -9,10 +9,13 @@ export default defineConfig({
     strictPort: true,
     host: true,
     proxy: {
-      '/tokens-batch': 'http://127.0.0.1:8080',
-      '/tokens': 'http://127.0.0.1:8080',
-      '/trades': 'http://127.0.0.1:8080',
-      '/health': 'http://127.0.0.1:8080',
+      '/tokens-batch': 'http://127.0.0.1:8090',
+      '/tokens': 'http://127.0.0.1:8090',
+      '/trades': 'http://127.0.0.1:8090',
+      '/signals': 'http://127.0.0.1:8090',
+      '/a-tokens': 'http://127.0.0.1:8090',
+      '/l-tokens': 'http://127.0.0.1:8090',
+      '/health': 'http://127.0.0.1:8090',
     },
   },
 })

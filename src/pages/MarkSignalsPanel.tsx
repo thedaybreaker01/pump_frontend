@@ -180,6 +180,35 @@ function fmtShortDateTime(iso: string | null | undefined) {
   })
 }
 
+/** Compact table cell: date + time on two lines. */
+function markTimeCell(iso: string | null | undefined) {
+  if (!iso) return <span className="muted">—</span>
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return <span className="muted">—</span>
+  return (
+    <div className="markTimeCell tabular" title={d.toLocaleString()}>
+      <div>{d.toLocaleDateString(undefined, { month: 'numeric', day: 'numeric' })}</div>
+      <div className="muted" style={{ fontSize: 11 }}>
+        {d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', second: '2-digit' })}
+      </div>
+    </div>
+  )
+}
+
+function holdDurationLabel(aMarkAt: string, sMarkAt: string | null | undefined): string | null {
+  if (!sMarkAt) return null
+  const a = new Date(aMarkAt).getTime()
+  const s = new Date(sMarkAt).getTime()
+  if (Number.isNaN(a) || Number.isNaN(s) || s < a) return null
+  const sec = Math.round((s - a) / 1000)
+  if (sec < 60) return `${sec}s hold`
+  const min = Math.floor(sec / 60)
+  if (min < 60) return `${min}m hold`
+  const h = Math.floor(min / 60)
+  const rm = min % 60
+  return rm > 0 ? `${h}h ${rm}m hold` : `${h}h hold`
+}
+
 function sMarkReasonLabel(reason: string | null | undefined) {
   if (!reason) return '—'
   const labels: Record<string, string> = {
@@ -598,7 +627,7 @@ export default function MarkSignalsPanel() {
     return { totalPnl, wins, losses, n, deployed, roiPct, winRate, chartRows, legacy: (pnlSummary?.total_s_marked ?? cycles.length) - n }
   }, [cycles, listMode, pnlSummary, paperBuySol])
 
-  const tableColSpan = listMode === 's_marked' ? 7 : listMode === 'on_a' ? 6 : 6
+  const tableColSpan = listMode === 's_marked' ? 8 : listMode === 'on_a' ? 6 : 6
 
   return (
     <div className="markPanel">
@@ -814,7 +843,8 @@ export default function MarkSignalsPanel() {
                 <th>Token</th>
                 {listMode === 's_marked' ? (
                   <>
-                    <th>Closed</th>
+                    <th>A_mark</th>
+                    <th>S_mark</th>
                     <th>SOL in</th>
                     <th>SOL out</th>
                     <th style={{ textAlign: 'right' }}>P/L (SOL)</th>
@@ -856,6 +886,8 @@ export default function MarkSignalsPanel() {
                   const isSelected = selectedId === c.id
                   const buySol = effectiveBuySol(c, paperBuySol) ?? paperBuySol
                   const sellSol = effectiveSellSol(c, paperBuySol)
+                  const sMarkAt = c.s_mark_at ?? c.closed_at
+                  const holdLabel = holdDurationLabel(c.a_mark_at, sMarkAt)
                   return (
                     <tr
                       key={c.id}
@@ -870,7 +902,15 @@ export default function MarkSignalsPanel() {
                       </td>
                       {listMode === 's_marked' ? (
                         <>
-                          <td className="tabular">{fmtShortDateTime(c.s_mark_at ?? c.closed_at)}</td>
+                          <td>{markTimeCell(c.a_mark_at)}</td>
+                          <td>
+                            {markTimeCell(sMarkAt)}
+                            {holdLabel ? (
+                              <div className="muted" style={{ fontSize: 10, marginTop: 2 }}>
+                                {holdLabel}
+                              </div>
+                            ) : null}
+                          </td>
                           <td>{solTradeCell(buySol, c.buy_price_usd, c.a_mark_mcap_usd)}</td>
                           <td>{solTradeCell(sellSol, c.sell_price_usd, c.s_mark_mcap_usd)}</td>
                           <td

@@ -60,6 +60,13 @@ export type HealthDto = {
   s_mark_mode?: string
   manual_sell_enabled?: boolean
   l_tokens_enabled?: boolean
+  wallet?: string
+  wallet_pubkey?: string
+  wallet_balance_sol?: number | null
+  real_trade_enabled?: boolean
+  real_trade_active?: boolean
+  real_trade_buy_sol?: number
+  real_trade_fee_reserve_sol?: number
 }
 
 export type SMarkModeDto = {

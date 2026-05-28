@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import SMarkModeToggle from '../components/SMarkModeToggle';
+import WalletBalance from '../components/WalletBalance';
 
 export type NavKey =
   | 'tokens'
@@ -80,6 +81,7 @@ export default function SidebarLayout(props: {
           ) : null}
         </nav>
 
+        <WalletBalance />
         <SMarkModeToggle />
       </aside>
 
