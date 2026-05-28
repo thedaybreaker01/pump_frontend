@@ -87,12 +87,14 @@ function markTokenPricePct(c: MarkCycleDto): number | null {
 }
 
 function effectiveBuySol(c: MarkCycleDto, paperBuySol: number): number | null {
+  if (c.real_buy_sol != null && Number.isFinite(c.real_buy_sol) && c.real_buy_sol > 0) return c.real_buy_sol
   if (c.buy_sol != null && Number.isFinite(c.buy_sol) && c.buy_sol > 0) return c.buy_sol
   if (c.status === 's_marked' && c.s_mark_at) return paperBuySol
   return null
 }
 
 function effectiveSellSol(c: MarkCycleDto, paperBuySol: number): number | null {
+  if (c.real_sell_sol != null && Number.isFinite(c.real_sell_sol)) return c.real_sell_sol
   if (c.sell_sol != null && Number.isFinite(c.sell_sol)) return c.sell_sol
   const buySol = effectiveBuySol(c, paperBuySol)
   const sell = c.sell_price_usd
@@ -105,6 +107,14 @@ function effectiveSellSol(c: MarkCycleDto, paperBuySol: number): number | null {
 
 /** Paper SOL P/L (DB field or estimated from token USD at A_mark / S_mark). */
 function markPnlSol(c: MarkCycleDto, paperBuySol = PAPER_BUY_SOL_DEFAULT): { sol: number; pct: number } | null {
+  if (
+    c.real_pnl_sol != null &&
+    c.real_pnl_sol_pct != null &&
+    Number.isFinite(c.real_pnl_sol) &&
+    Number.isFinite(c.real_pnl_sol_pct)
+  ) {
+    return { sol: c.real_pnl_sol, pct: c.real_pnl_sol_pct }
+  }
   if (
     c.pnl_sol != null &&
     c.pnl_sol_pct != null &&
@@ -207,6 +217,14 @@ function holdDurationLabel(aMarkAt: string, sMarkAt: string | null | undefined):
   const h = Math.floor(min / 60)
   const rm = min % 60
   return rm > 0 ? `${h}h ${rm}m hold` : `${h}h hold`
+}
+
+function realOrMarkBuyTime(c: MarkCycleDto): string {
+  return c.real_buy_at ?? c.a_mark_at
+}
+
+function realOrMarkSellTime(c: MarkCycleDto): string | null {
+  return c.real_sell_at ?? c.s_mark_at
 }
 
 function sMarkReasonLabel(reason: string | null | undefined) {
@@ -886,8 +904,9 @@ export default function MarkSignalsPanel() {
                   const isSelected = selectedId === c.id
                   const buySol = effectiveBuySol(c, paperBuySol) ?? paperBuySol
                   const sellSol = effectiveSellSol(c, paperBuySol)
-                  const sMarkAt = c.s_mark_at ?? c.closed_at
-                  const holdLabel = holdDurationLabel(c.a_mark_at, sMarkAt)
+                  const buyAt = realOrMarkBuyTime(c)
+                  const sMarkAt = realOrMarkSellTime(c) ?? c.closed_at
+                  const holdLabel = holdDurationLabel(buyAt, sMarkAt)
                   return (
                     <tr
                       key={c.id}
@@ -902,7 +921,7 @@ export default function MarkSignalsPanel() {
                       </td>
                       {listMode === 's_marked' ? (
                         <>
-                          <td>{markTimeCell(c.a_mark_at)}</td>
+                          <td>{markTimeCell(buyAt)}</td>
                           <td>
                             {markTimeCell(sMarkAt)}
                             {holdLabel ? (
@@ -921,7 +940,7 @@ export default function MarkSignalsPanel() {
                               <>
                                 <div>{fmtSignedSol(pnlSol.sol)}</div>
                                 <div style={{ fontSize: 11, fontWeight: 500 }}>{fmtPct(pnlSol.pct)} SOL</div>
-                                {c.pnl_sol == null && c.s_mark_at ? (
+                                {c.real_pnl_sol == null && c.pnl_sol == null && c.s_mark_at ? (
                                   <div className="muted" style={{ fontSize: 10, fontWeight: 500 }} title="Estimated from token USD; restart API after migration to persist">
                                     est.
                                   </div>
@@ -978,7 +997,7 @@ export default function MarkSignalsPanel() {
 
       {!selectedCycle ? (
         <div className="markDetailCard markEmptyDetail">
-          Select a row to see the paper trade (SOL in → SOL out), net P/L in SOL, price chart, and lifecycle.
+          Select a row to see the SOL trade flow (in to out), net P/L in SOL, price chart, and lifecycle.
         </div>
       ) : detailLoading && (detail == null || detail.cycle.id !== selectedId) ? (
         <div className="markDetailCard markEmptyDetail">Loading cycle detail…</div>
@@ -998,14 +1017,14 @@ export default function MarkSignalsPanel() {
             </div>
             {selectedPnlSol ? (
               <div className="markPnlHero">
-                <div className="markPnlHeroLabel">Paper P/L (SOL)</div>
+                <div className="markPnlHeroLabel">Real/Paper P/L (SOL)</div>
                 <div className={`markPnlHeroValue ${pnlClass(selectedPnlSol.sol)}`}>
                   {fmtSignedSol(selectedPnlSol.sol)}
                 </div>
                 <div className={`markPnlHeroSub ${pnlClass(selectedPnlSol.sol)}`}>
                   {fmtPct(selectedPnlSol.pct)}
-                  {selectedCycle.buy_sol != null && selectedCycle.sell_sol != null
-                    ? ` · ${fmtSol(selectedCycle.buy_sol)} → ${fmtSol(selectedCycle.sell_sol)}`
+                  {effectiveBuySol(selectedCycle, paperBuySol) != null && effectiveSellSol(selectedCycle, paperBuySol) != null
+                    ? ` · ${fmtSol(effectiveBuySol(selectedCycle, paperBuySol))} → ${fmtSol(effectiveSellSol(selectedCycle, paperBuySol))}`
                     : null}
                   {selectedCycle.profit_multiple != null
                     ? ` · ${selectedCycle.profit_multiple.toFixed(2)}× price`
@@ -1032,12 +1051,14 @@ export default function MarkSignalsPanel() {
             )}
           </div>
 
-          {selectedCycle.buy_sol != null || selectedCycle.sell_sol != null ? (
+          {effectiveBuySol(selectedCycle, paperBuySol) != null || effectiveSellSol(selectedCycle, paperBuySol) != null ? (
             <div className="markSolFlow">
               <div className="markSolFlowStep">
-                <span className="markSolFlowTag">A_mark · paper buy</span>
+                <span className="markSolFlowTag">
+                  {selectedCycle.real_buy_sol != null ? 'A_mark · real buy' : 'A_mark · paper buy'}
+                </span>
                 <span className="markSolFlowAmount tabular">
-                  {fmtSol(selectedCycle.buy_sol ?? paperBuySol)}
+                  {fmtSol(effectiveBuySol(selectedCycle, paperBuySol))}
                 </span>
                 <span className="markSolFlowSub muted">{fmtUsd(selectedCycle.buy_price_usd)} / token</span>
               </div>
@@ -1045,9 +1066,11 @@ export default function MarkSignalsPanel() {
                 →
               </div>
               <div className="markSolFlowStep">
-                <span className="markSolFlowTag">S_mark · paper sell</span>
+                <span className="markSolFlowTag">
+                  {selectedCycle.real_sell_sol != null ? 'S_mark · real sell' : 'S_mark · paper sell'}
+                </span>
                 <span className="markSolFlowAmount tabular">
-                  {selectedCycle.sell_sol != null ? fmtSol(selectedCycle.sell_sol) : '—'}
+                  {fmtSol(effectiveSellSol(selectedCycle, paperBuySol))}
                 </span>
                 <span className="markSolFlowSub muted">{fmtUsd(selectedCycle.sell_price_usd)} / token</span>
               </div>
@@ -1074,7 +1097,7 @@ export default function MarkSignalsPanel() {
             <div className="markStatCard">
               <span className="markStatLabel">Buy @ A_mark</span>
               <span className="markStatValue">
-                {selectedCycle.buy_sol != null ? fmtSol(selectedCycle.buy_sol) : '—'}
+                {fmtSol(effectiveBuySol(selectedCycle, paperBuySol))}
               </span>
               <span className="muted" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
                 token {fmtUsd(selectedCycle.buy_price_usd)} · mcap {fmtMcap(selectedCycle.a_mark_mcap_usd)}
@@ -1087,19 +1110,19 @@ export default function MarkSignalsPanel() {
             <div className="markStatCard">
               <span className="markStatLabel">Sell @ S_mark</span>
               <span className="markStatValue">
-                {selectedCycle.sell_sol != null ? fmtSol(selectedCycle.sell_sol) : '—'}
+                {fmtSol(effectiveSellSol(selectedCycle, paperBuySol))}
               </span>
               <span className="muted" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
                 token {fmtUsd(selectedCycle.sell_price_usd)} · mcap {fmtMcap(selectedCycle.s_mark_mcap_usd)}
               </span>
             </div>
             <div className="markStatCard">
-              <span className="markStatLabel">A_mark time</span>
-              <span className="markStatValue">{fmtDateTime(selectedCycle.a_mark_at)}</span>
+              <span className="markStatLabel">Buy time</span>
+              <span className="markStatValue">{fmtDateTime(realOrMarkBuyTime(selectedCycle))}</span>
             </div>
             <div className="markStatCard">
-              <span className="markStatLabel">S_mark time</span>
-              <span className="markStatValue">{fmtDateTime(selectedCycle.s_mark_at)}</span>
+              <span className="markStatLabel">Sell time</span>
+              <span className="markStatValue">{fmtDateTime(realOrMarkSellTime(selectedCycle))}</span>
             </div>
             <div className="markStatCard">
               <span className="markStatLabel">Down streak @ S</span>

@@ -569,6 +569,15 @@ export type MarkCycleDto = {
   /** Paper sim: sell_sol − buy_sol. */
   pnl_sol: number | null
   pnl_sol_pct: number | null
+  /** Real trade ledger: SOL in on buy. */
+  real_buy_sol?: number | null
+  /** Real trade ledger: SOL out on sell. */
+  real_sell_sol?: number | null
+  /** Real trade ledger: real_sell_sol − real_buy_sol. */
+  real_pnl_sol?: number | null
+  real_pnl_sol_pct?: number | null
+  real_buy_at?: string | null
+  real_sell_at?: string | null
 }
 
 export type MarkSnapshotDto = {
