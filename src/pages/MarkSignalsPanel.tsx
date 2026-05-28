@@ -598,11 +598,11 @@ export default function MarkSignalsPanel() {
     [cycles, selectedId, detail],
   )
 
-  const selectedPnlSol = selectedCycle ? markPnlSol(selectedCycle, paperBuySol) : null
-  const selectedPnlPrice = selectedCycle ? markPnlPrice(selectedCycle) : null
-
   const paperBuySol =
     cycles.find((c) => c.buy_sol != null && c.buy_sol > 0)?.buy_sol ?? PAPER_BUY_SOL_DEFAULT
+
+  const selectedPnlSol = selectedCycle ? markPnlSol(selectedCycle, paperBuySol) : null
+  const selectedPnlPrice = selectedCycle ? markPnlPrice(selectedCycle) : null
 
   const solStats = useMemo(() => {
     if (listMode !== 's_marked') return null
