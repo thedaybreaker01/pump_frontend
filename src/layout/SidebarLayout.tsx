@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import BotTradingToggle from '../components/BotTradingToggle';
 import SMarkModeToggle from '../components/SMarkModeToggle';
 import WalletBalance from '../components/WalletBalance';
 
@@ -81,6 +82,7 @@ export default function SidebarLayout(props: {
           ) : null}
         </nav>
 
+        <BotTradingToggle />
         <WalletBalance />
         <SMarkModeToggle />
       </aside>

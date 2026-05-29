@@ -134,7 +134,7 @@ export default function TokenDetailModal(props: Props) {
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
               <a
-                href={`https://jup.ag/tokens/${encodeURIComponent(selected.mint)}`}
+                href={`https://trade.padre.gg/trade/solana/${encodeURIComponent(selected.mint)}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="jupAgTokenLink"

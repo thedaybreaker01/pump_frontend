@@ -67,6 +67,36 @@ export type HealthDto = {
   real_trade_active?: boolean
   real_trade_buy_sol?: number
   real_trade_fee_reserve_sol?: number
+  bot_trading_enabled?: boolean
+}
+
+export type BotTradingDto = {
+  enabled: boolean
+}
+
+export async function fetchBotTrading(): Promise<BotTradingDto> {
+  const res = await fetch(`${API_BASE}/signals/bot-trading`)
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return (await res.json()) as BotTradingDto
+}
+
+export async function putBotTrading(enabled: boolean): Promise<BotTradingDto> {
+  const res = await fetch(`${API_BASE}/signals/bot-trading`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled }),
+  })
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`
+    try {
+      const t = await res.text()
+      if (t.trim()) msg = t.trim()
+    } catch {
+      /* ignore */
+    }
+    throw new Error(msg)
+  }
+  return (await res.json()) as BotTradingDto
 }
 
 export type SMarkModeDto = {
